@@ -1,0 +1,15 @@
+# /etc/fail2ban/jail.d/treeway.local (copied by setup_server.sh)
+#
+# Only SSH is banned here. Web traffic reaches the server from Cloudflare's IPs, so banning a visitor's IP in
+# the firewall would do nothing. Web abuse is stopped by: the app's own Redis limits (login 5 wrong tries,
+# OTP tries, per-IP request limits), nginx limit_req on the real visitor IP, and a Cloudflare rate-limiting rule
+# (see LAUNCH_CHECKLIST.md).
+[DEFAULT]
+bantime = 1h
+findtime = 10m
+maxretry = 5
+banaction = ufw
+
+[sshd]
+enabled = true
+maxretry = 4

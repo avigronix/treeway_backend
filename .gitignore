@@ -1,0 +1,35 @@
+# secrets: only the *.example files go to git
+config/.env
+config/.env.*
+!config/.env.example
+.env
+.env.*
+!.env.example
+deploy/backup/backup.env
+*.pem
+*.key
+*.age
+age-key*.txt
+
+# python
+__pycache__/
+*.pyc
+venv/
+.venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# member files, backups, logs, dumps (never in git)
+uploads/
+backups/
+logs/
+*.log
+*.dump
+*.sql.gz
+*.sql.age
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/

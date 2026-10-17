@@ -1,0 +1,23 @@
+# /etc/systemd/system/redis-treeway.service
+#   mkdir -p /var/lib/redis-treeway && chown redis:redis /var/lib/redis-treeway
+#   systemctl daemon-reload && systemctl enable --now redis-treeway
+[Unit]
+Description=Redis for Treeway (127.0.0.1:6380)
+After=network.target
+
+[Service]
+Type=notify
+User=redis
+Group=redis
+ExecStart=/usr/bin/redis-server /etc/redis/redis-treeway.conf
+ExecStop=/usr/bin/redis-cli -p 6380 shutdown
+Restart=always
+RestartSec=2
+LimitNOFILE=10032
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ReadWritePaths=/var/lib/redis-treeway /var/log/redis
+
+[Install]
+WantedBy=multi-user.target

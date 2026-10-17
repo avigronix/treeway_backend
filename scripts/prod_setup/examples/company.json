@@ -1,0 +1,12 @@
+{
+  "name": "Treeway Self Help Pvt Ltd",
+  "upi_id": "treeway@sbi",
+  "account_holder": "Treeway Self Help Pvt Ltd",
+  "account_no": "123456789012",
+  "ifsc": "SBIN0001234",
+  "branch": "Padrauna",
+  "email": "support@example.com",
+  "phone": "9876543210",
+  "whatsapp_group": "https://chat.whatsapp.com/AbCdEfGh123",
+  "qr": "qr.png"
+}
