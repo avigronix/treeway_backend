@@ -23,7 +23,7 @@ Tick each line on the server, in order. `deploy/preflight.py` checks most of the
       one more safe copy); run `backup/backup.sh` once by hand
 - [ ] Restore drill: run `backup/restore_drill.sh` once by hand; it must say "restore drill ok"
 - [ ] Cron: healthcheck, backup, restore drill, Cloudflare IPs (see `monitor/README.md`)
-- [ ] App (frontend): `cd ~/web && git pull --ff-only && npm ci && npm run build` → nginx serves `~/web/dist` (see README step 6b)
+- [ ] App (frontend): `cd ~/web && git pull --ff-only` (dist/ comes ready-built) → nginx serves `~/web/dist` (see README step 6b)
 - [ ] Open `https://treeway.avigronix.com` on a phone: login screen loads; `https://treeway.avigronix.com/api/v1/health` and `https://apitreeway.avigronix.com/api/v1/health` say ok
 - [ ] Outside uptime monitor on `https://apitreeway.avigronix.com/api/v1/health` with SMS
 

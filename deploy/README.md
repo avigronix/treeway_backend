@@ -11,7 +11,7 @@ The server is shared with other pm2 apps, so Treeway gets its own Linux user, it
 | 4 | `env.production.example` | Copy to `/home/treeway/app/config/.env` and fill in |
 | 5 | `pm2/ecosystem.config.js` | gunicorn (4 workers) + exactly one scheduler, memory limits, restarts |
 | 6 | `nginx/treeway-api.conf` (apitreeway.avigronix.com) + `nginx/treeway-web.conf` (treeway.avigronix.com) + `treeway-headers.conf` + `treeway-proxy.conf` in `/etc/nginx/treeway/` | The app domain serves `web/dist` and passes `/api/` + `/uploads/` to gunicorn (no CORS); HTTPS (certbot), real visitor IP, CSP + security headers, gzip, 6 MB uploads |
-| 6b | the app (treeway_frontend) | `git clone <frontend repo> ~/web && cd ~/web && npm ci && npm run build` → `~/web/dist` (Node 20+). nginx serves it |
+| 6b | the app (treeway_frontend) | `git clone <frontend repo> ~/web`: the built app is already in `~/web/dist` (made by release.sh). nginx serves it |
 | 7 | `backup/backup.sh` + cron | Daily encrypted Postgres + uploads backup to R2 / Backblaze, 30 days kept |
 | 8 | `backup/restore_drill.sh` + cron | Weekly: restore the latest backup into a scratch DB and check it |
 | 9 | `monitor/` | Health / disk / RAM checks every 5 min, email alerts, pm2-logrotate |
@@ -30,7 +30,7 @@ GitHub has only the code the server runs (branch `release` on Vinay's machine, p
 ```bash
 sudo -iu treeway
 git clone <backend-repo-url> ~/app
-git clone <frontend-repo-url> ~/web && cd ~/web && npm ci && npm run build    # -> ~/web/dist
+git clone <frontend-repo-url> ~/web       # has the built app in ~/web/dist: no npm / build on the server
 ```
 
 Folder layout on the server:
@@ -57,5 +57,5 @@ pm2 restart treeway-scheduler
 venv/bin/python deploy/preflight.py
 
 # the app (only when the frontend changed):
-cd ~/web && git pull --ff-only && npm ci && npm run build   # members get the new version on next open ("Update" prompt)
+cd ~/web && git pull --ff-only   # dist/ comes ready-built; members get the new version on next open ("Update" prompt)
 ```

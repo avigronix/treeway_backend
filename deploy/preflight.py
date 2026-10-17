@@ -110,7 +110,7 @@ def app_checks():
     check("API running under pm2", '"name":"treeway-api"' in pm2)
     page = Path("/home/treeway/web/dist/index.html")
     check("app built (web/dist/index.html) with its CSP", page.exists() and "Content-Security-Policy" in page.read_text(),
-          "cd ~/web && npm ci && npm run build")
+          "cd ~/web && git pull (the release has dist/)")
 
 
 def server_checks():
