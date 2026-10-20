@@ -62,14 +62,6 @@ class ResetLinkSent(Out):
     expires_in: int = Field(description="Seconds the link works (24 hours)")
 
 
-class SignupOtp(Out):
-    """Sign-up step 1 of 2: the OTP went to the email. Send signup_ticket + the OTP to POST /users/register/verify."""
-    signup_ticket: str
-    email: str = Field(description="Masked, e.g. s****@gmail.com")
-    resend_in: int = Field(description="Seconds before POST /users/register/resend works")
-    expires_in: int = Field(description="Seconds the sign-up is kept; then the form must be filled again")
-
-
 class PublicUser(Out):
     id: int
     user_code: str
@@ -91,7 +83,7 @@ class LoginToken(Out):
 
 
 class SignupDone(LoginToken):
-    """Sign-up step 2 of 2: the ID is made and the member is logged in (the app opens "Activate your ID")."""
+    """Sign-up: the ID is made (inactive) and the member is logged in (the app opens the dashboard)."""
     user_code: str
     full_name: str
 

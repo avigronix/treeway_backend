@@ -16,8 +16,6 @@ from models.model import (
     ProfileModel,
     RegisterModel,
     ResetPasswordModel,
-    SignupTicketModel,
-    SignupVerifyModel,
 )
 
 userApi = APIRouter()
@@ -70,9 +68,8 @@ async def register_challenge():
     return respond({"msg": "", "status": 200, "data": make_challenge()})
 
 
-SIGNUP_TTL = 30 * 60        # a sign-up waits this long for its email OTP (and a lost verify answer is repeated)
-SIGNUP_MAX_RESENDS = 5
-SIGNUP_EXPIRED = "Sign-up has expired. Please fill the form again."
+# A lost answer: the same form sent again within this time gives the same ID back (never a 409 to its own owner).
+SIGNUP_REPEAT_SECONDS = 30 * 60
 
 
 async def _sponsor_ok(code: str) -> Dict:
@@ -86,81 +83,46 @@ async def _mobile_taken(mobile: str) -> bool:
     return bool(await cpo.fetch_val("SELECT 1 FROM users WHERE mobile = $1 AND status <> 'removed'", mobile))
 
 
-def _signup_answer(ticket: str, email: str, expires_in: int) -> JSONResponse:
-    return respond({"msg": "OTP sent to your email.", "status": 200, "data": {
-        "signup_ticket": ticket, "email": mask_email(email), "resend_in": OTP_RESEND_GAP, "expires_in": expires_in}})
-
-
-@userApi.post("/users/register", response_model=R.Envelope[R.SignupOtp])
-async def register(body: RegisterModel):
-    """Sign-up step 1 (email OTP, Q3 yes, 16 Oct): checks everything, keeps the form for 30 minutes (the password
-    only as its hash) and mails an OTP. The ID is made by POST /users/register/verify. Old members are not touched."""
-    await hit_limit(f"register:{body.mobile}", 5, 600)   # per mobile: 5 tries in 10 minutes
-    await check_pow(body.pow_challenge, body.pow_nonce, body.website)
-    await _sponsor_ok(body.sponsor_code)
-    if await _mobile_taken(body.mobile):
-        fail(409, "This mobile number is already registered.")
-    ticket = secrets.token_urlsafe(32)
-    data = body.model_dump(include={"sponsor_code", "full_name", "mobile", "email", "state", "district"})
-    data["password_hash"] = await hash_password_async(body.password)
-    await redis_client.setex(f"signup:{ticket}", SIGNUP_TTL, json.dumps(data))
-    try:
-        await issue_otp("signup", {"id": ticket, "full_name": body.full_name}, body.email)
-    except BaseException:
-        await redis_client.delete(f"signup:{ticket}")   # mail failed: nothing is kept, the form can be sent again
-        raise
-    return _signup_answer(ticket, body.email, SIGNUP_TTL)
-
-
-@userApi.post("/users/register/resend", response_model=R.Envelope[R.SignupOtp])
-async def register_resend(body: SignupTicketModel):
-    """A new sign-up OTP to the same email (60 s gap, at most 5 per sign-up). To use another email, fill the form
-    again (a new sign-up)."""
-    raw = await redis_client.get(f"signup:{body.signup_ticket}")
-    if not raw:
-        fail(400, SIGNUP_EXPIRED, "SignupExpired")
-    await hit_limit(f"signup-resend:{body.signup_ticket}", SIGNUP_MAX_RESENDS, SIGNUP_TTL,
-                    "Too many OTPs for this sign-up. Please fill the form again.")
-    data = json.loads(raw)
-    await issue_otp("signup", {"id": body.signup_ticket, "full_name": data["full_name"]}, data["email"])
-    return _signup_answer(body.signup_ticket, data["email"], max(1, await redis_client.ttl(f"signup:{body.signup_ticket}")))
+async def _same_signup_again(body: RegisterModel) -> Optional[int]:
+    """The ID this exact form already made a moment ago (double tap, or the answer was lost on a slow network):
+    same mobile, email and sponsor, still inactive, made in the last 30 minutes, and the same password."""
+    u = await cpo.fetch_one(
+        "SELECT u.id, u.password_hash FROM users u JOIN users s ON s.id = u.sponsor_id "
+        "WHERE u.mobile = $1 AND u.status = 'inactive' AND lower(u.email) = lower($2) AND s.user_code = $3 "
+        "AND u.created_at > now() - make_interval(secs => $4)",
+        body.mobile, body.email, body.sponsor_code, SIGNUP_REPEAT_SECONDS)
+    if u and await verify_password_async(body.password, u["password_hash"]):
+        return u["id"]
+    return None
 
 
 async def _signup_done(user_id: int) -> JSONResponse:
     u = await cpo.fetch_one("SELECT * FROM users WHERE id = $1", user_id)
-    if u["status"] in ("blocked", "removed"):
-        fail(403, "This ID is blocked. Please contact support.", "Blocked")
-    return respond({"msg": "Your ID is ready. Now activate it.", "status": 201, "data": {
+    return respond({"msg": "Your ID is ready. Activate it to start.", "status": 201, "data": {
         "user_code": u["user_code"], "full_name": u["full_name"], "token": create_token(u), "user": _public_user(u)}})
 
 
-@userApi.post("/users/register/verify", response_model=R.Envelope[R.SignupDone], status_code=201)
-async def register_verify(body: SignupVerifyModel):
-    """Sign-up step 2: the right OTP makes the ID (free, inactive) and logs the member in. The same ticket again
-    (double tap, lost answer) gives the same ID, never a second one."""
-    ticket = body.signup_ticket
-    done = await redis_client.get(f"signup:{ticket}:done")
-    if done:
-        return await _signup_done(int(done))
-    raw = await redis_client.get(f"signup:{ticket}")
-    if not raw:
-        fail(400, SIGNUP_EXPIRED, "SignupExpired")
+@userApi.post("/users/register", response_model=R.Envelope[R.SignupDone], status_code=201)
+async def register(body: RegisterModel):
+    """Free sign-up (SRS 2: the ID is made as soon as the form is sent; no email OTP, Vinay 20 Oct). Makes the
+    inactive ID and logs the member in. The same form again (double tap, lost answer) gives the same ID back."""
+    await hit_limit(f"register:{body.mobile}", 5, 600)   # per mobile: 5 tries in 10 minutes
+    await check_pow(body.pow_challenge, body.pow_nonce, body.website)
+    sponsor = await _sponsor_ok(body.sponsor_code)
+    if await _mobile_taken(body.mobile):
+        again = await _same_signup_again(body)
+        if again:
+            return await _signup_done(again)
+        fail(409, "This mobile number is already registered.")
+    data = body.model_dump(include={"full_name", "mobile", "email", "state", "district"})
+    data["password_hash"] = await hash_password_async(body.password)
     try:
-        await check_otp("signup", ticket, body.otp)
-    except HTTPException:
-        done = await redis_client.get(f"signup:{ticket}:done")   # the other tap won a moment ago
-        if done:
-            return await _signup_done(int(done))
-        raise
-    data = json.loads(raw)
-    try:
-        sponsor = await _sponsor_ok(data["sponsor_code"])          # may have been blocked meanwhile
         user_id = await _create_member(data, sponsor["id"])
-    except HTTPException:
-        await redis_client.delete(f"signup:{ticket}")             # 409 / 400: this sign-up cannot finish
-        raise
-    await redis_client.setex(f"signup:{ticket}:done", SIGNUP_TTL, user_id)
-    await redis_client.delete(f"signup:{ticket}")
+    except HTTPException as e:
+        again = await _same_signup_again(body) if e.status_code == 409 else None   # the other tap won a moment ago
+        if not again:
+            raise
+        user_id = again
     return await _signup_done(user_id)
 
 

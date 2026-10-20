@@ -80,14 +80,6 @@ class RegisterModel(Clean):
         return self
 
 
-class SignupTicketModel(Clean):
-    signup_ticket: str = Field(min_length=20, max_length=100)
-
-
-class SignupVerifyModel(SignupTicketModel):
-    otp: str = Field(min_length=6, max_length=6)
-
-
 class LoginModel(Clean):
     login_id: str = Field(min_length=3, max_length=20, description="Member ID or mobile")
     password: str = Field(min_length=1, max_length=64)
