@@ -86,7 +86,8 @@ async def _dashboard_totals() -> Dict:
     members = await cpo.fetch_one(
         "SELECT count(*) FILTER (WHERE status = 'active') AS active, count(*) FILTER (WHERE status = 'inactive') AS inactive, "
         "count(*) FILTER (WHERE status = 'blocked') AS blocked, count(*) FILTER (WHERE activated_at >= $1) AS activated_today, "
-        f"count(*) FILTER (WHERE created_at >= $1) AS joined_today FROM users u WHERE {MEMBER_OR_COMPANY}", today)
+        f"count(*) FILTER (WHERE created_at >= $1) AS joined_today, count(*) FILTER (WHERE u.role = 'ADMIN') AS company "
+        f"FROM users u WHERE {MEMBER_OR_COMPANY}", today)
     money = await cpo.fetch_one(
         "SELECT coalesce(sum(income), 0) AS member_income_wallets, coalesce(sum(fund), 0) AS member_fund_wallets, "
         "coalesce(sum(product), 0) AS member_product_wallets FROM wallets")
@@ -100,8 +101,11 @@ async def _dashboard_totals() -> Dict:
         "(SELECT coalesce(sum(amount), 0)::bigint FROM company_ledger WHERE type = 'turnover' AND created_at >= $3) "
         "AS turnover_this_month, "
         "(SELECT count(*) FROM company_ledger WHERE type = 'turnover' AND created_at >= $3) AS joins_this_month, "
-        "(SELECT count(*) FROM super3_nodes WHERE user_id IS NOT NULL) AS ids_in_super3, "
-        "(SELECT count(*) FROM super3_nodes WHERE user_id IS NOT NULL AND status = 'full') AS boards_full",
+        # IDs, not spots: an ID on Board 2 also has its Board 1 spot. The company ID counts once (Vinay 21 Oct).
+        "(SELECT count(*) FROM super3_journeys WHERE user_id IS NOT NULL) "
+        "+ (SELECT count(*) FROM (SELECT 1 FROM super3_nodes WHERE user_id IS NULL LIMIT 1) c) AS ids_in_super3, "
+        "(SELECT count(*) FROM super3_nodes WHERE user_id IS NULL) AS company_spots, "
+        "(SELECT count(*) FROM super3_nodes WHERE status = 'full') AS boards_full",
         yesterday, today, period_start("month"))
     joins["turnover_this_month"] = rupees(joins["turnover_this_month"])
     first_day = today_ist() - timedelta(days=29)
@@ -213,7 +217,8 @@ async def admin_members(status: Optional[str] = None, search: Optional[str] = Qu
     data["counts"] = await cpo.fetch_one(
         "SELECT count(*) AS total, count(*) FILTER (WHERE status = 'active') AS active, "
         "count(*) FILTER (WHERE status = 'inactive') AS inactive, count(*) FILTER (WHERE status = 'blocked') AS blocked, "
-        f"count(*) FILTER (WHERE status = 'removed') AS removed FROM users u WHERE {MEMBER_OR_COMPANY}")
+        f"count(*) FILTER (WHERE status = 'removed') AS removed, count(*) FILTER (WHERE u.role = 'ADMIN') AS company "
+        f"FROM users u WHERE {MEMBER_OR_COMPANY}")
     return respond({"msg": "", "status": 200, "data": data})
 
 

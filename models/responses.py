@@ -493,7 +493,8 @@ class Super3Stats(Out):
     journeys: JourneyTotals
     money: Super3Money
     waiting_second_share: int = Field(description="Members with ₹300 on hold, waiting for the next share")
-    ids_on_boards: int
+    ids_on_boards: int = Field(description="Members' main + recycle IDs, plus the company ID TW1000000 (once)")
+    company_spots: int = Field(description="Spots of the company ID (spot #1 on each board + company recycles)")
 
 
 # ================================================================ complaints
@@ -594,6 +595,7 @@ class AdminMembersCount(Out):
     blocked: int
     activated_today: int
     joined_today: int
+    company: int = Field(description="The company's own ID TW1000000, already counted in active above (1, or 0 if missing)")
 
 
 class MissingVideoDay(Out):
@@ -622,8 +624,10 @@ class DashJoins(Out):
     activated_yesterday: int
     turnover_this_month: float
     joins_this_month: int
-    ids_in_super3: int
-    boards_full: int
+    ids_in_super3: int = Field(description="IDs on the boards: members' main + recycle IDs, plus the company ID TW1000000 "
+                                           "(counted once) when it holds spots")
+    company_spots: int = Field(description="Spots of the company ID (spot #1 on each board + company recycles)")
+    boards_full: int = Field(description="Full spots (3 below filled), the company's included")
 
 
 class DayCount(Out):
@@ -731,6 +735,7 @@ class MemberCounts(Out):
     inactive: int
     blocked: int
     removed: int
+    company: int = Field(description="The company's own ID TW1000000, already counted in total / active above")
 
 
 class AdminMembersPage(Page[AdminMemberRow]):

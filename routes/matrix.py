@@ -141,8 +141,11 @@ async def _super3_stats() -> Dict:
         "SELECT (SELECT coalesce(sum(gross), 0)::bigint FROM wallet_ledger WHERE type = 'super3_income') AS wallet_part_paid, "
         "(SELECT coalesce(sum(amount), 0)::bigint FROM company_ledger WHERE type = 'self_help') AS self_help, "
         "(SELECT count(*) FROM users WHERE s3_shares = 1 AND role = 'USER') AS waiting_second_share, "
-        "(SELECT count(*) FROM super3_nodes WHERE user_id IS NOT NULL) AS ids_on_boards")
+        "(SELECT count(*) FROM super3_journeys WHERE user_id IS NOT NULL) "
+        "+ (SELECT count(*) FROM (SELECT 1 FROM super3_nodes WHERE user_id IS NULL LIMIT 1) c) AS ids_on_boards, "
+        "(SELECT count(*) FROM super3_nodes WHERE user_id IS NULL) AS company_spots")
     return {"boards": rows, "journeys": totals,
             "money": {**{k: rupees(v) for k, v in pool.items()}, "wallet_part_paid": rupees(extra["wallet_part_paid"]),
                       "self_help": rupees(extra["self_help"])},
-            "waiting_second_share": extra["waiting_second_share"], "ids_on_boards": extra["ids_on_boards"]}
+            "waiting_second_share": extra["waiting_second_share"], "ids_on_boards": extra["ids_on_boards"],
+            "company_spots": extra["company_spots"]}
