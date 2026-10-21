@@ -693,6 +693,14 @@ class Pnl(Out):
     shop: PnlShop
 
 
+class MemberRowSuper3(Out):
+    """Members list 'Super 3' column: where the main ID stands (recycle IDs are on the member's page)."""
+    shares: int = Field(description="0 = not in, 1 = 1st direct's share on hold, 2 = on the boards")
+    board: Optional[int] = Field(description="The main ID's board now")
+    spot: Optional[int] = Field(description="Its spot number on that board")
+    finished: bool = Field(description="All 8 boards done")
+
+
 class AdminMemberRow(Out):
     id: int
     user_code: str
@@ -714,6 +722,7 @@ class AdminMemberRow(Out):
     rank_name: Optional[str]
     active_team: int = Field(description="Full depth, active only (last night's count)")
     days_inactive: Optional[int] = Field(description="'Not active · day 3'")
+    super3: MemberRowSuper3
 
 
 class MemberCounts(Out):

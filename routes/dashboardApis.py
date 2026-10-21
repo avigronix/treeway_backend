@@ -173,7 +173,7 @@ async def admin_members(status: Optional[str] = None, search: Optional[str] = Qu
                         state: Optional[str] = Query(None, max_length=60), rank: Optional[int] = Query(None, ge=0, le=6),
                         cursor: Optional[str] = Query(None, max_length=200), page: int = 1, limit: int = 20, admin=Depends(tokenRequired(["ADMIN"]))):
     sql = ("SELECT u.id, u.user_code, u.full_name, u.mobile, u.email, u.status, u.direct_count, u.created_at, "
-           "u.role = 'ADMIN' AS is_company, "
+           "u.role = 'ADMIN' AS is_company, u.s3_shares, "
            "u.activated_at, s.user_code AS sponsor_code, w.income, w.fund, w.product, u.state, u.district, "
            "coalesce(r.rank, 0) AS rank, coalesce(r.active_team, 0) AS active_team, u.id AS _k "
            "FROM users u LEFT JOIN users s ON s.id = u.sponsor_id LEFT JOIN wallets w ON w.user_id = u.id "
@@ -195,9 +195,17 @@ async def admin_members(status: Optional[str] = None, search: Optional[str] = Qu
         args.append(f"%{q}%")
         sql += f" OR u.full_name ILIKE ${len(args)})"
     data = await cpo.paginate(sql, *args, page=page, limit=limit, cursor=cursor)
+    # Super 3 column (Vinay 21 Oct): the main ID's board and spot, read for this page's rows only.
+    boards = {r["user_id"]: r for r in await cpo.fetch_all(
+        "SELECT j.user_id, j.current_board, j.finished, n.position FROM super3_journeys j "
+        "LEFT JOIN super3_nodes n ON n.journey_id = j.id AND n.board = j.current_board "
+        "WHERE j.user_id = ANY($1::bigint[]) AND j.kind = 'main'", [r["id"] for r in data["rows"]])}
     for r in data["rows"]:
         for k in ("income", "fund", "product"):
             r[k] = rupees(r[k])
+        b = boards.get(r["id"])
+        r["super3"] = {"shares": r.pop("s3_shares"), "board": b["current_board"] if b else None,
+                       "spot": b["position"] if b else None, "finished": bool(b and b["finished"])}
         r["rank_name"] = RANK_NAMES[r["rank"] - 1] if r["rank"] else None
         # "Not active · day 3"
         r["days_inactive"] = (today_ist() - r["created_at"].astimezone(IST).date()).days + 1 \

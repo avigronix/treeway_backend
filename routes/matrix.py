@@ -23,12 +23,13 @@ def _board_net(s3: Dict, cut: int, board: int) -> int:
 
 @matrixApi.get("/super3/status", response_model=R.Envelope[R.Super3Status])
 async def super3_status(user=Depends(tokenRequired())):
-    """'When will my 3 come?' for every running journey of the member."""
-    return respond({"msg": "", "status": 200, "data": await super3_status_data(user["id"])})
+    """The member's journeys and spots (for the board tree). The 'when will my 3 come' estimate (line, spots to
+    go, speed, days, money when full) is admin only (Vinay 21 Oct): it stays null here."""
+    return respond({"msg": "", "status": 200, "data": await super3_status_data(user["id"], with_eta=False)})
 
 
-async def super3_status_data(uid: int) -> Dict:
-    """Also used by the admin's member page (Super 3 tab)."""
+async def super3_status_data(uid: int, with_eta: bool = True) -> Dict:
+    """Also used by the admin's member page (Super 3 tab), with the estimate."""
     s = await get_settings()
     s3, cut = s["super3"], sum(s["cut_percent"].values())
     nodes = await cpo.fetch_all(
@@ -47,7 +48,7 @@ async def super3_status_data(uid: int) -> Dict:
     for n in nodes:
         item = {"journey_id": n["journey_id"], "kind": n["kind"], "board": n["current_board"], "finished": n["finished"],
                 "position": n["position"], "children": n["children"], "positions": spots_of.get(n["journey_id"], [])}
-        if not n["finished"] and n["position"]:
+        if with_eta and not n["finished"] and n["position"]:
             board = n["current_board"]
             line_at = counters[board] - 1
             spots = [{"spot": p, "to_go": max(0, p - line_at)} for p in child_positions(n["position"])]
