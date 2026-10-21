@@ -26,15 +26,34 @@ async def live_banners(audience: str = Query("everyone", pattern="^(everyone|log
     return respond({"msg": "", "status": 200, "data": [_banner_out(b) for b in rows]})
 
 
+def _admin_banner(b: Dict, today) -> Dict:
+    return {**_banner_out(b), "starts_on": b["starts_on"], "ends_on": b["ends_on"], "is_active": b["is_active"],
+            "sort_order": b["sort_order"], "updated_at": b["updated_at"],
+            "live": b["is_active"] and (b["starts_on"] is None or b["starts_on"] <= today)
+                    and (b["ends_on"] is None or b["ends_on"] >= today)}
+
+
 @contentApi.get("/admin/banners", response_model=R.Envelope[List[R.AdminBanner]])
 async def all_banners(admin=Depends(tokenRequired(["ADMIN"]))):
     rows = await cpo.fetch_all("SELECT * FROM banners ORDER BY audience, sort_order, id")
     today = today_ist()
-    return respond({"msg": "", "status": 200, "data": [{
-        **_banner_out(b), "starts_on": b["starts_on"], "ends_on": b["ends_on"], "is_active": b["is_active"],
-        "sort_order": b["sort_order"], "updated_at": b["updated_at"],
-        "live": b["is_active"] and (b["starts_on"] is None or b["starts_on"] <= today)
-                and (b["ends_on"] is None or b["ends_on"] >= today)} for b in rows]})
+    return respond({"msg": "", "status": 200, "data": [_admin_banner(b, today) for b in rows]})
+
+
+@contentApi.get("/admin/banners/{bannerId}", response_model=R.Envelope[R.AdminBannerDetail])
+async def banner_detail(bannerId: int, admin=Depends(tokenRequired(["ADMIN"]))):
+    """One banner with who added it and who changed it last (Vinay 21 Oct)."""
+    b = await cpo.fetch_one(
+        "SELECT b.*, c.full_name AS created_by_name, e.created_at AS last_edit_at, e.full_name AS last_edit_by_name "
+        "FROM banners b LEFT JOIN users c ON c.id = b.created_by "
+        "LEFT JOIN LATERAL (SELECT a.created_at, u.full_name FROM admin_audit a LEFT JOIN users u ON u.id = a.admin_id "
+        "  WHERE a.action = 'banner_edit' AND a.target = b.id::text ORDER BY a.id DESC LIMIT 1) e ON true "
+        "WHERE b.id = $1", bannerId)
+    if not b:
+        fail(404, "Banner not found.")
+    return respond({"msg": "", "status": 200, "data": {
+        **_admin_banner(b, today_ist()), "created_at": b["created_at"], "created_by_name": b["created_by_name"],
+        "last_edit_at": b["last_edit_at"], "last_edit_by_name": b["last_edit_by_name"]}})
 
 
 def _check_dates(starts, ends):
@@ -71,6 +90,20 @@ async def edit_banner(bannerId: int, request: Request, admin=Depends(tokenRequir
             await cpo.updating("banners", {"id": bannerId}, {**data, "updated_at": now_utc()}, conn=conn)
         await audit(conn, admin["id"], "banner_edit", str(bannerId), {k: str(v) for k, v in data.items()})
     return respond({"msg": "Banner saved.", "status": 200})
+
+
+@contentApi.delete("/admin/banners/{bannerId}", response_model=R.Envelope[R.NoData])
+async def delete_banner(bannerId: int, admin=Depends(tokenRequired(["ADMIN"]))):
+    """Gone from Home / login at once. The audit log keeps a full copy. The picture file stays on disk: phones
+    that cached the banner list for a few minutes never show a broken picture, and the copy can still be seen."""
+    async with cpo.transaction() as conn:
+        # One statement: of two deletes at once only one gets the row back (the other answers 404).
+        old = await cpo.fetch_one("DELETE FROM banners WHERE id = $1 RETURNING *", bannerId, conn=conn)
+        if not old:
+            fail(404, "Banner not found. It may be deleted already.")
+        await audit(conn, admin["id"], "banner_delete", str(bannerId),
+                    {k: str(v) for k, v in old.items() if k not in ("id",)})
+    return respond({"msg": "Banner deleted.", "status": 200})
 
 
 # ================================================================ contact us

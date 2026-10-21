@@ -1575,6 +1575,13 @@ class AdminBanner(Banner):
     live: bool = Field(description="On and inside its dates today")
 
 
+class AdminBannerDetail(AdminBanner):
+    created_at: datetime
+    created_by_name: Optional[str]
+    last_edit_at: Optional[datetime] = Field(description="Last edit (from the audit log); null = never edited")
+    last_edit_by_name: Optional[str]
+
+
 class ContactRow(Out):
     id: int
     name: str
