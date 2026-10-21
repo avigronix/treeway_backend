@@ -696,6 +696,7 @@ class Pnl(Out):
 class AdminMemberRow(Out):
     id: int
     user_code: str
+    is_company: bool = Field(description="TW1000000, the company's own ID (the root sponsor): view only")
     full_name: str
     mobile: str
     email: str

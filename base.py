@@ -375,6 +375,11 @@ def tokenRequired(accessRole: List[str] = [], activeOnly: bool = False, allowDoc
     return verify
 
 
+# The members the admin lists, counts and exports: every member, plus the company's own ID TW1000000 (the root
+# sponsor, role ADMIN), shown like a member (Vinay 20 Oct). Actions on it stay blocked (_member_id needs role USER).
+MEMBER_OR_COMPANY = "(u.role = 'USER' OR u.user_code = 'TW1000000')"
+
+
 async def audit(conn, admin_id: int, action: str, target: str = None, detail: Dict = None):
     await cpo.insertion("admin_audit", {"admin_id": admin_id, "action": action, "target": target,
                                         "detail": detail or {}}, conn=conn, returning=None)

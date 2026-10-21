@@ -86,7 +86,7 @@ async def _dashboard_totals() -> Dict:
     members = await cpo.fetch_one(
         "SELECT count(*) FILTER (WHERE status = 'active') AS active, count(*) FILTER (WHERE status = 'inactive') AS inactive, "
         "count(*) FILTER (WHERE status = 'blocked') AS blocked, count(*) FILTER (WHERE activated_at >= $1) AS activated_today, "
-        "count(*) FILTER (WHERE created_at >= $1) AS joined_today FROM users WHERE role = 'USER'", today)
+        f"count(*) FILTER (WHERE created_at >= $1) AS joined_today FROM users u WHERE {MEMBER_OR_COMPANY}", today)
     money = await cpo.fetch_one(
         "SELECT coalesce(sum(income), 0) AS member_income_wallets, coalesce(sum(fund), 0) AS member_fund_wallets, "
         "coalesce(sum(product), 0) AS member_product_wallets FROM wallets")
@@ -173,10 +173,11 @@ async def admin_members(status: Optional[str] = None, search: Optional[str] = Qu
                         state: Optional[str] = Query(None, max_length=60), rank: Optional[int] = Query(None, ge=0, le=6),
                         cursor: Optional[str] = Query(None, max_length=200), page: int = 1, limit: int = 20, admin=Depends(tokenRequired(["ADMIN"]))):
     sql = ("SELECT u.id, u.user_code, u.full_name, u.mobile, u.email, u.status, u.direct_count, u.created_at, "
+           "u.role = 'ADMIN' AS is_company, "
            "u.activated_at, s.user_code AS sponsor_code, w.income, w.fund, w.product, u.state, u.district, "
            "coalesce(r.rank, 0) AS rank, coalesce(r.active_team, 0) AS active_team, u.id AS _k "
            "FROM users u LEFT JOIN users s ON s.id = u.sponsor_id LEFT JOIN wallets w ON w.user_id = u.id "
-           "LEFT JOIN user_rank_stats r ON r.user_id = u.id WHERE u.role = 'USER'")
+           f"LEFT JOIN user_rank_stats r ON r.user_id = u.id WHERE {MEMBER_OR_COMPANY}")
     args: List[Any] = []
     if status in ("active", "inactive", "blocked", "removed"):
         args.append(status)
@@ -204,7 +205,7 @@ async def admin_members(status: Optional[str] = None, search: Optional[str] = Qu
     data["counts"] = await cpo.fetch_one(
         "SELECT count(*) AS total, count(*) FILTER (WHERE status = 'active') AS active, "
         "count(*) FILTER (WHERE status = 'inactive') AS inactive, count(*) FILTER (WHERE status = 'blocked') AS blocked, "
-        "count(*) FILTER (WHERE status = 'removed') AS removed FROM users WHERE role = 'USER'")
+        f"count(*) FILTER (WHERE status = 'removed') AS removed FROM users u WHERE {MEMBER_OR_COMPANY}")
     return respond({"msg": "", "status": 200, "data": data})
 
 

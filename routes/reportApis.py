@@ -225,7 +225,7 @@ async def export_csv(name: str, fy: Optional[str] = None, quarter: Optional[str]
                f"u.activated_at, u.direct_count, r.rank, {rs.format('w.income')}, {rs.format('w.fund')}, "
                f"{rs.format('w.product')}, u.pan FROM users u LEFT JOIN users s ON s.id = u.sponsor_id "
                f"LEFT JOIN wallets w ON w.user_id = u.id LEFT JOIN user_rank_stats r ON r.user_id = u.id "
-               f"WHERE u.role = 'USER' AND ($1::text IS NULL OR u.status = $1) ORDER BY u.id")
+               f"WHERE {MEMBER_OR_COMPANY} AND ($1::text IS NULL OR u.status = $1) ORDER BY u.id")
         args = (status,)
     elif name == "payment-requests":
         header = ["Request", "ID", "Name", "For", "Amount", "PINs", "UTR", "Status", "Remark", "Sent", "Checked", "Checked by"]
