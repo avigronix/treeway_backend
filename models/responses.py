@@ -1275,6 +1275,8 @@ class AdminOrder(Order):
 class OrderCounts(Out):
     to_pack: int
     payment_to_check: int
+    waiting_for_member: int = Field(description="Delivery payment rejected: the member must pay again (7 days); "
+                                                "the admin can still cancel it")
     on_the_way: int
     delivered_this_month: int
     courier_refunds_due: int

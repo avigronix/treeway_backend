@@ -359,6 +359,7 @@ async def admin_orders(status: Optional[str] = Query(None, pattern="^(placed|pac
     data["counts"] = await cpo.fetch_one(
         "SELECT count(*) FILTER (WHERE status = 'placed' AND courier_status = 'approved') AS to_pack, "
         "count(*) FILTER (WHERE status = 'placed' AND courier_status = 'pending') AS payment_to_check, "
+        "count(*) FILTER (WHERE status = 'placed' AND courier_status = 'rejected') AS waiting_for_member, "
         "count(*) FILTER (WHERE status IN ('packed', 'shipped')) AS on_the_way, "
         "count(*) FILTER (WHERE status = 'delivered' AND delivered_at >= $1) AS delivered_this_month, "
         "count(*) FILTER (WHERE courier_refund_due AND courier_refunded_at IS NULL) AS courier_refunds_due, "
