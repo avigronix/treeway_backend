@@ -1,5 +1,5 @@
 import re
-from datetime import date
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
@@ -301,7 +301,13 @@ class VideoItemModel(Clean):
 
 
 class DayVideosModel(BaseModel):
-    videos: List[VideoItemModel] = Field(min_length=1, max_length=10)
+    videos: List[VideoItemModel] = Field(default_factory=list, max_length=10)
+    start_time: Optional[time] = Field(None, description="IST, HH:MM; when the day's videos go live (none = 12:00 AM)")
+
+    @field_validator("start_time")
+    @classmethod
+    def _minutes(cls, v):
+        return v.replace(second=0, microsecond=0, tzinfo=None) if v else v
 
 
 class GullakDepositModel(Clean):
@@ -549,16 +555,26 @@ class PrescriptionModel(Clean):
 class BannerFormModel(Clean):
     title: str = Field(min_length=2, max_length=120)
     audience: Literal["everyone", "login"] = "everyone"
-    starts_on: Optional[date] = None
-    ends_on: Optional[date] = None
+    starts_at: Optional[datetime] = Field(None, description="IST date + time it starts showing ('' = now)")
+    ends_at: Optional[datetime] = Field(None, description="IST date + time it stops showing ('' = no end)")
     is_active: bool = True
     sort_order: int = Field(0, ge=0, le=1000)
     link_url: Optional[str] = Field(None, max_length=300)
 
-    @field_validator("starts_on", "ends_on", mode="before")
+    @field_validator("starts_at", "ends_at", mode="before")
     @classmethod
-    def _no_date(cls, v):
-        return v or None              # an empty form field = no date (the edit form clears it this way)
+    def _no_time(cls, v):
+        return v or None              # an empty form field = no time (the edit form clears it this way)
+
+    @field_validator("starts_at", "ends_at")
+    @classmethod
+    def _ist(cls, v):
+        # The form sends "2026-10-22T18:00" (India time); to the minute.
+        if v is None:
+            return v
+        if v.tzinfo is None:
+            v = v.replace(tzinfo=timezone(timedelta(hours=5, minutes=30)))
+        return v.replace(second=0, microsecond=0)
 
     @field_validator("link_url")
     @classmethod

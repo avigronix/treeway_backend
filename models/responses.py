@@ -7,7 +7,7 @@ extra="forbid", so a field added, renamed or removed without updating the model 
 Money is rupees (float, 2 decimals) unless a field says paise. Dates are ISO strings.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Any, Dict, Generic, List, Literal, Optional, TypeVar, Union
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -1007,7 +1007,9 @@ class VideosToday(Out):
     day_no: Optional[int] = Field(description="Activation date is Day 1")
     days_total: int
     eligible: bool
-    ready: bool = Field(description="False = no complete set of links in the last 30 days: no lock, no ₹20")
+    ready: bool = Field(description="False = no complete set of links in the last 30 days, or today's start time "
+                                    "is still ahead: no lock, no ₹20 yet")
+    starts_at: Optional[datetime] = Field(description="Today's videos go live at this time (only while it is ahead)")
     links_from: Optional[date] = Field(description="Date of the links used when today has no full set")
     locked: bool = Field(description="True = keep the app locked until today's videos are done")
     all_done: bool
@@ -1061,7 +1063,18 @@ class AdminVideos(Out):
     date: date
     videos: List[AdminVideo]
     per_day: int
+    start_time: Optional[time] = Field(description="IST; null = 12:00 AM")
+    status: Literal["scheduled", "live", "ended", "incomplete"]
     missing_days: List[MissingVideoDay]
+
+
+class VideoScheduleDay(Out):
+    date: date
+    links: int = Field(description="Links set (of per_day)")
+    per_day: int
+    start_time: Optional[time] = Field(description="IST; null = 12:00 AM")
+    status: Literal["scheduled", "live", "ended", "incomplete"] = Field(
+        description="incomplete = fewer links than needed: members get the last full day's videos")
 
 
 class MissingDays(Out):
@@ -1569,12 +1582,13 @@ class Banner(Out):
 
 
 class AdminBanner(Banner):
-    starts_on: Optional[date]
-    ends_on: Optional[date]
+    starts_at: Optional[datetime] = Field(description="Starts showing (null = at once)")
+    ends_at: Optional[datetime] = Field(description="Stops showing (null = no end)")
     is_active: bool
     sort_order: int
     updated_at: datetime
-    live: bool = Field(description="On and inside its dates today")
+    state: Literal["live", "scheduled", "ended", "off"]
+    live: bool = Field(description="On and inside its start / end time now")
 
 
 class AdminBannerDetail(AdminBanner):

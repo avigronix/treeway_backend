@@ -21,23 +21,32 @@ def _banner_out(b: Dict) -> Dict:
 async def live_banners(audience: str = Query("everyone", pattern="^(everyone|login)$")):
     """Public. Only banners that are on and inside their dates (IST), in the admin's order."""
     rows = await cpo.fetch_all(
-        "SELECT * FROM banners WHERE is_active AND audience = $1 AND (starts_on IS NULL OR starts_on <= $2) "
-        "AND (ends_on IS NULL OR ends_on >= $2) ORDER BY sort_order, id", audience, today_ist())
+        "SELECT * FROM banners WHERE is_active AND audience = $1 AND (starts_at IS NULL OR starts_at <= now()) "
+        "AND (ends_at IS NULL OR ends_at > now()) ORDER BY sort_order, id", audience)
     return respond({"msg": "", "status": 200, "data": [_banner_out(b) for b in rows]})
 
 
-def _admin_banner(b: Dict, today) -> Dict:
-    return {**_banner_out(b), "starts_on": b["starts_on"], "ends_on": b["ends_on"], "is_active": b["is_active"],
-            "sort_order": b["sort_order"], "updated_at": b["updated_at"],
-            "live": b["is_active"] and (b["starts_on"] is None or b["starts_on"] <= today)
-                    and (b["ends_on"] is None or b["ends_on"] >= today)}
+def _banner_state(b: Dict, now: datetime) -> str:
+    if b["ends_at"] and b["ends_at"] <= now:
+        return "ended"
+    if not b["is_active"]:
+        return "off"
+    if b["starts_at"] and b["starts_at"] > now:
+        return "scheduled"
+    return "live"
+
+
+def _admin_banner(b: Dict, now: datetime) -> Dict:
+    state = _banner_state(b, now)
+    return {**_banner_out(b), "starts_at": b["starts_at"], "ends_at": b["ends_at"], "is_active": b["is_active"],
+            "sort_order": b["sort_order"], "updated_at": b["updated_at"], "state": state, "live": state == "live"}
 
 
 @contentApi.get("/admin/banners", response_model=R.Envelope[List[R.AdminBanner]])
 async def all_banners(admin=Depends(tokenRequired(["ADMIN"]))):
     rows = await cpo.fetch_all("SELECT * FROM banners ORDER BY audience, sort_order, id")
-    today = today_ist()
-    return respond({"msg": "", "status": 200, "data": [_admin_banner(b, today) for b in rows]})
+    now = now_utc()
+    return respond({"msg": "", "status": 200, "data": [_admin_banner(b, now) for b in rows]})
 
 
 @contentApi.get("/admin/banners/{bannerId}", response_model=R.Envelope[R.AdminBannerDetail])
@@ -52,20 +61,23 @@ async def banner_detail(bannerId: int, admin=Depends(tokenRequired(["ADMIN"]))):
     if not b:
         fail(404, "Banner not found.")
     return respond({"msg": "", "status": 200, "data": {
-        **_admin_banner(b, today_ist()), "created_at": b["created_at"], "created_by_name": b["created_by_name"],
+        **_admin_banner(b, now_utc()), "created_at": b["created_at"], "created_by_name": b["created_by_name"],
         "last_edit_at": b["last_edit_at"], "last_edit_by_name": b["last_edit_by_name"]}})
 
 
-def _check_dates(starts, ends):
-    if starts and ends and ends < starts:
-        fail(400, "The end date must be on or after the start date.")
+def _check_times(starts, ends, ends_changed: bool):
+    if ends_changed and ends and ends <= now_utc():
+        fail(400, "That end time is already over. Pick a later one, or leave it empty.")
+    if starts and ends and ends <= starts:
+        fail(400, "The end time must be after the start time.")
 
 
 @contentApi.post("/admin/banners", response_model=R.Envelope[R.IdOnly], status_code=201)
 async def add_banner(request: Request, admin=Depends(tokenRequired(["ADMIN"]))):
-    """Form: title, audience (everyone | login), starts_on, ends_on, is_active, sort_order, link_url; file: image."""
+    """Form: title, audience (everyone | login), starts_at, ends_at (IST "2026-10-22T18:00"), is_active, sort_order,
+    link_url; file: image."""
     data, form = await read_form(request, BannerFormModel)
-    _check_dates(data["starts_on"], data["ends_on"])
+    _check_times(data["starts_at"], data["ends_at"], ends_changed=True)
     image = await save_upload(form.get("image"), "banners", images_only=True)
     async with cpo.transaction() as conn:
         bid = await cpo.insertion("banners", {**data, "image_path": image, "created_by": admin["id"]}, conn=conn)
@@ -83,7 +95,8 @@ async def edit_banner(bannerId: int, request: Request, admin=Depends(tokenRequir
         old = await cpo.find_one("banners", {"id": bannerId}, conn=conn, for_update=True)
         if not old:
             fail(404, "Banner not found.")
-        _check_dates(data.get("starts_on", old["starts_on"]), data.get("ends_on", old["ends_on"]))
+        _check_times(data.get("starts_at", old["starts_at"]), data.get("ends_at", old["ends_at"]),
+                     ends_changed="ends_at" in data)
         if image:
             data["image_path"] = image
         if data:
