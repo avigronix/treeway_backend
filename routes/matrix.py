@@ -113,6 +113,53 @@ async def super3_tree(board: int = Query(..., ge=1, le=8), position: int = Query
     }})
 
 
+COMPANY_CODE = "TW1000000"
+
+
+@matrixApi.get("/admin/super3/ids", response_model=R.Envelope[R.Page[R.Super3IdRow]])
+async def super3_ids(search: Optional[str] = Query(None, max_length=40), board: Optional[int] = Query(None, ge=1, le=8),
+                     status: Optional[str] = Query(None, pattern="^(filling|full|finished)$"),
+                     kind: Optional[str] = Query(None, pattern="^(main|recycle|company)$"),
+                     cursor: Optional[str] = Query(None, max_length=200), page: int = 1, limit: int = 20,
+                     user=Depends(tokenRequired(["ADMIN"]))):
+    """Every ID on the Super 3 boards (Vinay, 26 Oct): one row per journey (main ID, each recycle ID, the
+    company's spots) with its current board, spot and progress. Newest first, 20 a page. Each journey is joined
+    to its current spot through super3_nodes (journey_id, board)."""
+    sql = ("SELECT j.id AS journey_id, j.kind, j.current_board AS board, j.finished, j.created_at AS started_at, "
+           "n.position, n.children, n.status AS spot_status, n.created_at AS on_board_since, "
+           "coalesce(u.user_code, $1) AS user_code, coalesce(u.full_name, 'Treeway (company)') AS full_name, "
+           "u.created_at AS member_joined, u.status AS member_status, j.id AS _k "
+           "FROM super3_journeys j LEFT JOIN super3_nodes n ON n.journey_id = j.id AND n.board = j.current_board "
+           "LEFT JOIN users u ON u.id = j.user_id WHERE TRUE")
+    args: List[Any] = [COMPANY_CODE]
+    if board:
+        args.append(board)
+        sql += f" AND j.current_board = ${len(args)}"
+    if status == "finished":
+        sql += " AND j.finished"
+    elif status:
+        args.append(status)
+        sql += f" AND NOT j.finished AND n.status = ${len(args)}"
+    if kind:
+        args.append(kind)
+        sql += f" AND j.kind = ${len(args)}"
+    if search:
+        q = search.strip()
+        if q.upper() == COMPANY_CODE:
+            sql += " AND j.user_id IS NULL"
+        else:
+            args.append(q.upper())
+            sql += f" AND (u.user_code = ${len(args)} OR u.mobile = ${len(args)}"
+            args.append(f"%{q}%")
+            sql += f" OR u.full_name ILIKE ${len(args)})"
+    boards = (await get_settings())["super3"]["boards"]
+    data = await cpo.paginate(sql, *args, page=page, limit=limit, cursor=cursor)
+    for r in data["rows"]:
+        r["boards_done"] = boards if r["finished"] else r["board"] - 1
+        r["boards_total"] = boards
+    return respond({"msg": "", "status": 200, "data": data})
+
+
 @matrixApi.get("/admin/super3/stats", response_model=R.Envelope[R.Super3Stats])
 async def super3_stats(user=Depends(tokenRequired(["ADMIN"]))):
     """Reads every board and the company ledger: cached for 60 seconds."""

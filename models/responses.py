@@ -488,6 +488,24 @@ class Super3Money(Out):
     self_help: float
 
 
+class Super3IdRow(Out):
+    journey_id: int
+    kind: Literal["main", "recycle", "company"]
+    user_code: str = Field(description="The company's spots show TW1000000")
+    full_name: str
+    member_joined: Optional[datetime] = Field(description="When the member joined Treeway (null for the company)")
+    member_status: Optional[str]
+    started_at: datetime = Field(description="When this ID entered Super 3 (Board 1)")
+    board: int = Field(description="Board now (the 'level' in Super 3)")
+    position: Optional[int] = Field(description="Spot number on that board")
+    children: Optional[int] = Field(description="Spots filled below it (of 3)")
+    spot_status: Optional[Literal["filling", "full"]]
+    on_board_since: Optional[datetime]
+    finished: bool = Field(description="All boards done")
+    boards_done: int
+    boards_total: int
+
+
 class Super3Stats(Out):
     boards: List[BoardStat]
     journeys: JourneyTotals
