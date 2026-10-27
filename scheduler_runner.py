@@ -18,7 +18,7 @@ from apscheduler.triggers.cron import CronTrigger  # noqa: E402
 from backgroundRunnerFunction import cancel_unpaid_courier_orders, clean_video_logs, remove_inactive_ids  # noqa: E402
 from base import IST, cpo, redis_client  # noqa: E402
 from monthlyPayouts import pay_due_months  # noqa: E402
-from rankStats import run_rank_stats  # noqa: E402
+from rankStats import RUN_AT, run_rank_stats  # noqa: E402
 from seed import initialize_database  # noqa: E402
 from singleLeg import run_single_leg  # noqa: E402
 
@@ -61,7 +61,7 @@ async def main():
     scheduler.add_job(run_single_leg, CronTrigger(hour=0, minute=0, timezone=IST), id="single_leg",
                       replace_existing=True, max_instances=1, coalesce=True, misfire_grace_time=6 * 3600)
     # Ranks after Single Leg; on the 1st it also saves last month's ranks for royalty.
-    scheduler.add_job(run_rank_stats, CronTrigger(hour=0, minute=20, timezone=IST), id="rank_stats",
+    scheduler.add_job(run_rank_stats, CronTrigger(hour=RUN_AT[0], minute=RUN_AT[1], timezone=IST), id="rank_stats",
                       replace_existing=True, max_instances=1, coalesce=True, misfire_grace_time=6 * 3600)
     # Royalty + Super 3 Level: the admin pays from the pay day (3rd); this backup pays at 18:00 if not.
     scheduler.add_job(pay_due_months, CronTrigger(hour=18, minute=0, timezone=IST), id="monthly_payouts",

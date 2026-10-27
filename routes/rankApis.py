@@ -1,6 +1,7 @@
 """Rank and Royalty screen (member) and the monthly payouts (admin)."""
 
 from base import *
+from rankStats import next_run
 from models import responses as R
 from monthlyPayouts import pay_month, plan
 
@@ -35,6 +36,10 @@ async def my_rank(user=Depends(tokenRequired())):
     last = await cpo.fetch_one("SELECT amount, meta, created_at FROM wallet_ledger WHERE user_id = $1 AND type = 'royalty' "
                                "ORDER BY id DESC LIMIT 1", user["id"])
     me = await cpo.fetch_one("SELECT s3l_reached_on FROM users WHERE id = $1", user["id"])
+    # Live, so the screen can say why the count is lower (Vinay 26 Oct: "5 directs but no rank").
+    live = await cpo.fetch_one(
+        "SELECT count(*) AS joined, count(*) FILTER (WHERE status = 'active') AS active_now FROM users "
+        "WHERE sponsor_id = $1 AND role = 'USER' AND status <> 'removed'", user["id"])
     s3l = s["s3_level"]
     first_pay = None
     if me["s3l_reached_on"]:
@@ -43,6 +48,8 @@ async def my_rank(user=Depends(tokenRequired())):
         "as_of": st["computed_at"], "rank": rank, "rank_name": RANK_NAMES[rank - 1] if rank else None,
         "active_directs": st["active_directs"], "active_team": st["active_team"], "ranks": ranks, "next": nxt,
         "leg_cap_percent": cap_pct, "pay_day": s["ranks"]["pay_day"],
+        "directs": {"joined": live["joined"], "active_now": live["active_now"], "counted": st["active_directs"]},
+        "next_count_at": next_run(now_utc()),
         "last_royalty": {"amount": rupees(last["amount"]), "month": last["meta"].get("month"), "paid_at": last["created_at"]}
         if last else None,
         "s3_level": {"directs_needed": s3l["directs"], "active_directs": st["active_directs"],

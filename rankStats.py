@@ -17,6 +17,13 @@ from typing import Dict, List, Optional
 from base import IST, RANK_NAMES, cpo, get_settings, logger, today_ist
 
 LOCK_KEY = "job:rank_stats"
+RUN_AT = (0, 20)          # IST hour, minute (scheduler_runner.py); the screens say when the next count is
+
+
+def next_run(now: datetime) -> datetime:
+    """The next night count after `now` (IST 12:20 AM)."""
+    t = now.astimezone(IST).replace(hour=RUN_AT[0], minute=RUN_AT[1], second=0, microsecond=0)
+    return t if t > now else t + timedelta(days=1)
 
 
 def compute_ranks(users: List[Dict], s: Dict) -> Dict[int, Dict]:

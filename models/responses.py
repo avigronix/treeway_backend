@@ -646,6 +646,8 @@ class DashJoins(Out):
                                            "(counted once) when it holds spots")
     company_spots: int = Field(description="Spots of the company ID (spot #1 on each board + company recycles)")
     boards_full: int = Field(description="Full spots (3 below filled), the company's included")
+    rank_count_at: Optional[datetime] = Field(
+        description="The last night rank count (treeway-scheduler, 12:20 AM). Older than a day = the job is not running")
 
 
 class DayCount(Out):
@@ -1137,6 +1139,12 @@ class S3LevelProgress(Out):
     payouts: int
 
 
+class DirectsNow(Out):
+    joined: int = Field(description="Directs who joined (not removed), active or not")
+    active_now: int = Field(description="Active right now (an ID activated today counts from tonight's count)")
+    counted: int = Field(description="Active directs in last night's count (what the rank uses)")
+
+
 class MyRank(Out):
     as_of: Optional[datetime] = Field(description="Counted every night; numbers are as of this time")
     rank: int
@@ -1149,6 +1157,9 @@ class MyRank(Out):
     pay_day: int
     last_royalty: Optional[LastRoyalty]
     s3_level: S3LevelProgress
+    directs: DirectsNow
+    next_count_at: datetime = Field(description="The next night count (IST 12:20 AM)")
+
 
 
 class RankPool(Out):

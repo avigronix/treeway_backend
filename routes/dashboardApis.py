@@ -108,6 +108,7 @@ async def _dashboard_totals() -> Dict:
         "(SELECT count(*) FROM super3_nodes WHERE status = 'full') AS boards_full",
         yesterday, today, period_start("month"))
     joins["turnover_this_month"] = rupees(joins["turnover_this_month"])
+    joins["rank_count_at"] = await cpo.fetch_val("SELECT max(computed_at) FROM user_rank_stats")
     first_day = today_ist() - timedelta(days=29)
     per_day = {r["day"]: r["n"] for r in await cpo.fetch_all(
         "SELECT (activated_at AT TIME ZONE 'Asia/Kolkata')::date AS day, count(*) AS n FROM users "
