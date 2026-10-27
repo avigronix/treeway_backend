@@ -407,6 +407,18 @@ class OrderItemModel(BaseModel):
     qty: int = Field(ge=1, le=50)
 
 
+class OrderPreviewModel(BaseModel):
+    """Checkout: which wallets will pay for these products (the order itself checks again)."""
+    items: List[OrderItemModel] = Field(min_length=1, max_length=20)
+
+    @field_validator("items")
+    @classmethod
+    def _once(cls, v):
+        if len({i.product_id for i in v}) != len(v):
+            raise ValueError("Each product once (use qty).")
+        return v
+
+
 class OrderUtrModel(Clean):
     courier_utr: str
 

@@ -101,10 +101,10 @@ async def _dashboard_totals() -> Dict:
         "(SELECT coalesce(sum(amount), 0)::bigint FROM company_ledger WHERE type = 'turnover' AND created_at >= $3) "
         "AS turnover_this_month, "
         "(SELECT count(*) FROM company_ledger WHERE type = 'turnover' AND created_at >= $3) AS joins_this_month, "
-        # IDs, not spots: an ID on Board 2 also has its Board 1 spot. The company ID counts once (Vinay 21 Oct).
-        "(SELECT count(*) FROM super3_journeys WHERE user_id IS NOT NULL) "
-        "+ (SELECT count(*) FROM (SELECT 1 FROM super3_nodes WHERE user_id IS NULL LIMIT 1) c) AS ids_in_super3, "
-        "(SELECT count(*) FROM super3_nodes WHERE user_id IS NULL) AS company_spots, "
+        # IDs, not spots (an ID on Board 2 also has its Board 1 spot); counted like the admin "IDs in Super 3"
+        # list: one row per ID, the company's IDs (spot #1 of each board + its recycles) included (Vinay 27 Oct).
+        "(SELECT count(*) FROM super3_journeys) AS ids_in_super3, "
+        "(SELECT count(*) FROM super3_journeys WHERE user_id IS NULL) AS company_spots, "
         "(SELECT count(*) FROM super3_nodes WHERE status = 'full') AS boards_full",
         yesterday, today, period_start("month"))
     joins["turnover_this_month"] = rupees(joins["turnover_this_month"])

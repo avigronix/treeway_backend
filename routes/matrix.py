@@ -116,7 +116,10 @@ async def super3_tree(board: int = Query(..., ge=1, le=8), position: int = Query
 COMPANY_CODE = "TW1000000"
 
 
-@matrixApi.get("/admin/super3/ids", response_model=R.Envelope[R.Page[R.Super3IdRow]])
+SPOT_JOIN = "LEFT JOIN super3_nodes n ON n.journey_id = j.id AND n.board = j.current_board"
+
+
+@matrixApi.get("/admin/super3/ids", response_model=R.Envelope[R.Super3IdsPage])
 async def super3_ids(search: Optional[str] = Query(None, max_length=40), board: Optional[int] = Query(None, ge=1, le=8),
                      status: Optional[str] = Query(None, pattern="^(filling|full|finished)$"),
                      kind: Optional[str] = Query(None, pattern="^(main|recycle|company)$"),
@@ -139,7 +142,7 @@ async def super3_ids(search: Optional[str] = Query(None, max_length=40), board: 
         sql += " AND j.finished"
     elif status:
         args.append(status)
-        sql += f" AND NOT j.finished AND n.status = ${len(args)}"
+        sql += f" AND NOT j.finished AND coalesce(n.status, 'filling') = ${len(args)}"
     if kind:
         args.append(kind)
         sql += f" AND j.kind = ${len(args)}"
@@ -157,6 +160,14 @@ async def super3_ids(search: Optional[str] = Query(None, max_length=40), board: 
     for r in data["rows"]:
         r["boards_done"] = boards if r["finished"] else r["board"] - 1
         r["boards_total"] = boards
+    # The whole pool, counted the same way as the rows (one row = one ID), so the boxes above the list
+    # always add up with it (Vinay 27 Oct). filling + full + finished = total.
+    data["counts"] = await cpo.fetch_one(
+        "SELECT count(*) AS total, count(*) FILTER (WHERE j.user_id IS NOT NULL) AS members, "
+        "count(*) FILTER (WHERE j.user_id IS NULL) AS company, count(*) FILTER (WHERE j.finished) AS finished, "
+        "count(*) FILTER (WHERE NOT j.finished AND n.status = 'full') AS full, "
+        "count(*) FILTER (WHERE NOT j.finished AND coalesce(n.status, 'filling') = 'filling') AS filling "
+        f"FROM super3_journeys j {SPOT_JOIN}")
     return respond({"msg": "", "status": 200, "data": data})
 
 
@@ -188,9 +199,8 @@ async def _super3_stats() -> Dict:
         "SELECT (SELECT coalesce(sum(gross), 0)::bigint FROM wallet_ledger WHERE type = 'super3_income') AS wallet_part_paid, "
         "(SELECT coalesce(sum(amount), 0)::bigint FROM company_ledger WHERE type = 'self_help') AS self_help, "
         "(SELECT count(*) FROM users WHERE s3_shares = 1 AND role = 'USER') AS waiting_second_share, "
-        "(SELECT count(*) FROM super3_journeys WHERE user_id IS NOT NULL) "
-        "+ (SELECT count(*) FROM (SELECT 1 FROM super3_nodes WHERE user_id IS NULL LIMIT 1) c) AS ids_on_boards, "
-        "(SELECT count(*) FROM super3_nodes WHERE user_id IS NULL) AS company_spots")
+        "(SELECT count(*) FROM super3_journeys) AS ids_on_boards, "
+        "(SELECT count(*) FROM super3_journeys WHERE user_id IS NULL) AS company_spots")
     return {"boards": rows, "journeys": totals,
             "money": {**{k: rupees(v) for k, v in pool.items()}, "wallet_part_paid": rupees(extra["wallet_part_paid"]),
                       "self_help": rupees(extra["self_help"])},

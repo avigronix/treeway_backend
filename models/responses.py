@@ -506,13 +506,26 @@ class Super3IdRow(Out):
     boards_total: int
 
 
+class Super3IdCounts(Out):
+    total: int
+    members: int
+    company: int
+    filling: int
+    full: int
+    finished: int
+
+
+class Super3IdsPage(Page[Super3IdRow]):
+    counts: Super3IdCounts = Field(description="The whole pool, not just this filter: filling + full + finished = total")
+
+
 class Super3Stats(Out):
     boards: List[BoardStat]
     journeys: JourneyTotals
     money: Super3Money
     waiting_second_share: int = Field(description="Members with ₹300 on hold, waiting for the next share")
-    ids_on_boards: int = Field(description="Members' main + recycle IDs, plus the company ID TW1000000 (once)")
-    company_spots: int = Field(description="Spots of the company ID (spot #1 on each board + company recycles)")
+    ids_on_boards: int = Field(description="IDs on the boards (the 'IDs in Super 3' list total), company's included")
+    company_spots: int = Field(description="Of those, the company's IDs (spot #1 on each board + company recycles)")
 
 
 # ================================================================ complaints
@@ -642,9 +655,9 @@ class DashJoins(Out):
     activated_yesterday: int
     turnover_this_month: float
     joins_this_month: int
-    ids_in_super3: int = Field(description="IDs on the boards: members' main + recycle IDs, plus the company ID TW1000000 "
-                                           "(counted once) when it holds spots")
-    company_spots: int = Field(description="Spots of the company ID (spot #1 on each board + company recycles)")
+    ids_in_super3: int = Field(description="IDs on the boards, as in the admin 'IDs in Super 3' list: members' main + "
+                                           "recycle IDs and the company's IDs")
+    company_spots: int = Field(description="Of those, the company's IDs (spot #1 on each board + company recycles)")
     boards_full: int = Field(description="Full spots (3 below filled), the company's included")
     rank_count_at: Optional[datetime] = Field(
         description="The last night rank count (treeway-scheduler, 12:20 AM). Older than a day = the job is not running")
@@ -1264,6 +1277,21 @@ class WalletSplit(Out):
     product: float
     fund: float
     income: float
+
+
+class WalletSplit(Out):
+    product: float
+    fund: float
+    income: float
+
+
+class OrderPreview(Out):
+    items_total: float
+    order_max: float
+    over_max: bool = Field(description="More than one order may hold")
+    wallets: WalletSplit = Field(description="What is in each wallet now")
+    pays: WalletSplit = Field(description="What each wallet pays: Product first, then Fund, then Income")
+    short: float = Field(description="Missing amount; 0 = the wallets cover it")
 
 
 class OrderPlaced(Out):

@@ -18,7 +18,8 @@ import asyncpg
 from base import *
 from mlmEngine import wallet_move
 from models import responses as R
-from models.model import CourierRateModel, CourierReviewModel, OrderCancelModel, OrderStatusModel, OrderUtrModel
+from models.model import (CourierRateModel, CourierReviewModel, OrderCancelModel, OrderPreviewModel, OrderStatusModel,
+                          OrderUtrModel)
 
 shopApi = APIRouter()
 
@@ -29,6 +30,15 @@ COURIER_FIX_DAYS = 7
 LOW_STOCK = 10
 PIN_RE = re.compile(r"^[1-9]\d{5}$")
 WALLET_ORDER = ("product", "fund", "income")
+
+
+def split_payment(bal: Dict, total: int) -> Dict[str, int]:
+    """Product first, then Fund, then Income (paise). The order and its preview use this one function."""
+    paid, left = {}, total
+    for w in WALLET_ORDER:
+        paid[w] = min(bal[w], left)
+        left -= paid[w]
+    return paid
 
 
 # ================================================================ courier
@@ -104,6 +114,30 @@ async def courier_charge(pincode: str = Query(..., max_length=6), user=Depends(t
     return respond({"msg": "", "status": 200, "data": {**q, "rate": rupees(q["rate"])}})
 
 
+@shopApi.post("/shop/orders/preview", response_model=R.Envelope[R.OrderPreview])
+async def order_preview(body: OrderPreviewModel, user=Depends(tokenRequired(activeOnly=True))):
+    """Checkout (Vinay, 27 Oct: "my Income Wallet money is not used"): the products' total and how the wallets
+    pay it, Product first, then Fund, then Income, with the same split the order uses. Nothing is held."""
+    s = await get_settings()
+    products = {p["id"]: p for p in await cpo.fetch_all(
+        "SELECT id, mrp, stock, is_active, name FROM products WHERE id = ANY($1::bigint[])",
+        [i.product_id for i in body.items])}
+    total = 0
+    for i in body.items:
+        p = products.get(i.product_id)
+        if not p or not p["is_active"]:
+            fail(400, "A product in your cart is not available any more.")
+        total += p["mrp"] * i.qty
+    bal = await cpo.fetch_one("SELECT product, fund, income FROM wallets WHERE user_id = $1", user["id"])
+    pays = split_payment(bal, total)
+    short = max(0, total - sum(pays.values()))
+    return respond({"msg": "", "status": 200, "data": {
+        "items_total": rupees(total), "order_max": rupees(s["shop"]["order_max"]),
+        "over_max": total > s["shop"]["order_max"],
+        "wallets": {w: rupees(bal[w]) for w in WALLET_ORDER}, "pays": {w: rupees(pays[w]) for w in WALLET_ORDER},
+        "short": rupees(short)}})
+
+
 @shopApi.post("/shop/orders", response_model=R.Envelope[R.OrderPlaced], status_code=201)
 async def place_order(request: Request, user=Depends(tokenRequired(activeOnly=True))):
     """Form fields: items (JSON [{product_id, qty}]), name, mobile, address, pincode, courier_utr; file: receipt."""
@@ -142,10 +176,7 @@ async def place_order(request: Request, user=Depends(tokenRequired(activeOnly=Tr
             bal = await cpo.fetch_one("SELECT product, fund, income FROM wallets WHERE user_id = $1", user["id"], conn=conn)
             if bal["product"] + bal["fund"] + bal["income"] < total:
                 fail(400, "Not enough money in your wallets for this order.")
-            paid, left = {}, total
-            for w in WALLET_ORDER:                          # Product first, then Fund, then Income
-                paid[w] = min(bal[w], left)
-                left -= paid[w]
+            paid = split_payment(bal, total)
 
             quote = await courier_quote(data["pincode"], conn)
             order_no = "TW-ORD-" + str(await cpo.fetch_val("SELECT nextval('order_no_seq')", conn=conn))
