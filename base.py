@@ -327,7 +327,8 @@ async def load_auth_user(user_id: int) -> Optional[Dict[str, Any]]:
     if cached:
         return json.loads(cached)
     user = await cpo.fetch_one(
-        "SELECT id, user_code, full_name, role, status, token_version, sponsor_id FROM users WHERE id = $1",
+        "SELECT id, user_code, full_name, role, status, token_version, sponsor_id, must_change_password "
+        "FROM users WHERE id = $1",
         user_id,
     )
     if user:
@@ -339,10 +340,13 @@ async def forget_auth_user(user_id: int):
     await redis_client.delete(f"auth:user:{user_id}")
 
 
-def tokenRequired(accessRole: List[str] = [], activeOnly: bool = False, allowDoctor: bool = False):
+def tokenRequired(accessRole: List[str] = [], activeOnly: bool = False, allowDoctor: bool = False,
+                  beforeNewPassword: bool = False):
     """Checks the token. accessRole=['ADMIN'] for admin APIs, activeOnly=True for APIs that need an active ID.
     Doctor accounts can use only routes that list 'DOCTOR' or set allowDoctor=True (privacy: a doctor never
-    reaches member wallets, teams, lookups ...)."""
+    reaches member wallets, teams, lookups ...).
+    An admin set this member's password: until the member chooses a new one, only routes with
+    beforeNewPassword=True answer (change password, who am I, log out) (Vinay, 28 Oct)."""
 
     async def verify(request: Request):
         header = request.headers.get("Authorization", "")
@@ -367,6 +371,8 @@ def tokenRequired(accessRole: List[str] = [], activeOnly: bool = False, allowDoc
             fail(403, "You do not have access to this.", "Forbidden")
         if user["role"] == "DOCTOR" and "DOCTOR" not in accessRole and not allowDoctor:
             fail(403, "Doctor accounts cannot open this.", "Forbidden")
+        if user.get("must_change_password") and not beforeNewPassword:
+            fail(403, "Please set a new password first.", "NewPassword")
         if activeOnly and user["status"] != "active":
             fail(403, "Activate your ID first.", "Inactive")
         request.state.role = user["role"]

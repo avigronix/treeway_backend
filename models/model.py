@@ -349,6 +349,13 @@ class AdminRemarkModel(Clean):
     remark: str = Field(min_length=3, max_length=300)
 
 
+class AdminSetPasswordModel(AdminRemarkModel):
+    """The admin types the new password (same rules as the member's own); the member must change it at login."""
+    new_password: str
+
+    _pw = field_validator("new_password")(_password)
+
+
 class AdminMobileModel(AdminRemarkModel):
     mobile: str
 

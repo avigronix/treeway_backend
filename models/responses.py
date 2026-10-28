@@ -75,6 +75,7 @@ class PublicUser(Out):
     state: Optional[str]
     district: Optional[str]
     created_at: datetime
+    must_change_password: bool = Field(False, description="An admin set the password: choose a new one first")
 
 
 class LoginToken(Out):
@@ -801,6 +802,7 @@ class AdminMemberUser(Out):
     s3l_reached_on: Optional[date]
     sponsor_code: Optional[str]
     sponsor_name: Optional[str]
+    must_change_password: bool = Field(False, description="An admin set the password; the member has not chosen a new one yet")
 
 
 class AdminWallet(Out):

@@ -43,7 +43,7 @@ def _public_user(u: Dict) -> Dict:
         "id": u["id"], "user_code": u["user_code"], "full_name": u["full_name"], "mobile": u["mobile"],
         "email": u["email"], "role": u["role"], "status": u["status"], "activated_at": u["activated_at"],
         "direct_count": u["direct_count"], "state": u["state"], "district": u["district"],
-        "created_at": u["created_at"],
+        "created_at": u["created_at"], "must_change_password": u["must_change_password"],
     }
 
 
@@ -202,7 +202,7 @@ async def login_otp(body: LoginOtpModel):
 
 
 @userApi.post("/users/logout-all", response_model=R.Envelope[R.NoData])
-async def logout_all(user=Depends(tokenRequired(allowDoctor=True))):
+async def logout_all(user=Depends(tokenRequired(allowDoctor=True, beforeNewPassword=True))):
     """Ends the session on every device."""
     await cpo.execute("UPDATE users SET token_version = token_version + 1 WHERE id = $1", user["id"])
     await forget_auth_user(user["id"])
@@ -230,7 +230,7 @@ async def reset_password(body: ResetPasswordModel):
     if not user:
         fail(400, "OTP has expired. Please ask for a new one.")
     await check_otp("reset", user["id"], body.otp)
-    await cpo.execute("UPDATE users SET password_hash = $2, token_version = token_version + 1 WHERE id = $1",
+    await cpo.execute("UPDATE users SET password_hash = $2, token_version = token_version + 1, must_change_password = FALSE WHERE id = $1",
                       user["id"], await hash_password_async(body.new_password))
     await forget_auth_user(user["id"])
     await redis_client.delete(f"loginfail:{user['user_code']}", f"loginfail:{user['mobile']}")
@@ -246,7 +246,7 @@ async def reset_password_by_link(body: LinkResetModel):
     user = await cpo.fetch_one("SELECT id, user_code, mobile, email, status FROM users WHERE id = $1", int(uid))
     if user["status"] in ("blocked", "removed"):
         fail(403, "This ID is blocked. Please contact support.", "Blocked")
-    await cpo.execute("UPDATE users SET password_hash = $2, token_version = token_version + 1 WHERE id = $1",
+    await cpo.execute("UPDATE users SET password_hash = $2, token_version = token_version + 1, must_change_password = FALSE WHERE id = $1",
                       user["id"], await hash_password_async(body.new_password))
     await forget_auth_user(user["id"])
     await redis_client.delete(f"pwreset:user:{user['id']}", f"loginfail:{user['user_code']}",
@@ -255,22 +255,23 @@ async def reset_password_by_link(body: LinkResetModel):
 
 
 @userApi.post("/users/change-password", response_model=R.Envelope[R.TokenOnly])
-async def change_password(body: ChangePasswordModel, user=Depends(tokenRequired(allowDoctor=True))):
+async def change_password(body: ChangePasswordModel, user=Depends(tokenRequired(allowDoctor=True, beforeNewPassword=True))):
     row = await cpo.fetch_one("SELECT * FROM users WHERE id = $1", user["id"])
     if not await verify_password_async(body.old_password, row["password_hash"]):
         fail(400, "Old password is wrong.")
     if body.old_password == body.new_password:
         fail(400, "New password must be different.")
-    await cpo.execute("UPDATE users SET password_hash = $2, token_version = token_version + 1 WHERE id = $1",
-                      user["id"], await hash_password_async(body.new_password))
+    await cpo.execute("UPDATE users SET password_hash = $2, token_version = token_version + 1, "
+                      "must_change_password = FALSE WHERE id = $1", user["id"], await hash_password_async(body.new_password))
     await forget_auth_user(user["id"])
     row["token_version"] += 1
+    row["must_change_password"] = False
     return respond({"msg": "Password changed.", "status": 200, "data": {"token": create_token(row)}})
 
 
 # ================================================================ profile + bank
 @userApi.get("/users/me", response_model=R.Envelope[R.Me])
-async def me(user=Depends(tokenRequired(allowDoctor=True))):
+async def me(user=Depends(tokenRequired(allowDoctor=True, beforeNewPassword=True))):
     row = await cpo.fetch_one(
         "SELECT u.*, s.user_code AS sponsor_code, s.full_name AS sponsor_name "
         "FROM users u LEFT JOIN users s ON s.id = u.sponsor_id WHERE u.id = $1", user["id"])
