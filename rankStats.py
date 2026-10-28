@@ -3,7 +3,8 @@
 - Active = activated before tonight's midnight (IST) and status 'active' (blocked is not counted).
 - Distributor: 5 active directs. Silver..Diamond: active team (full depth) with the 50:50 rule:
   counted = sum over direct lines of min(line's active IDs, need x 50%).
-- The member's rank is the highest one they qualify for.
+- The member's rank is the highest one they qualify for, and every rank below it too (Vinay 28 Oct): Silver and
+  up need the Distributor 5 active directs as well.
 - On the 1st of a month the night's result is also saved as last month's snapshot (royalty uses it).
 - Super 3 Level: the first night a member has 10 active directs sets users.s3l_reached_on (the day that ended).
 
@@ -53,9 +54,10 @@ def compute_ranks(users: List[Dict], s: Dict) -> Dict[int, Dict]:
             return sum(min(n, cap) for n, _ in lines)
 
         rank = 0
-        for r in range(1, len(RANK_NAMES) + 1):
-            if counted(r) >= ranks[RANK_NAMES[r - 1]]:
-                rank = r
+        for r in range(1, len(RANK_NAMES) + 1):     # each rank needs the one before it (Vinay 28 Oct)
+            if counted(r) < ranks[RANK_NAMES[r - 1]]:
+                break
+            rank = r
         big = max(lines, default=(0, None))
         out[uid] = {"active_directs": directs[uid], "active_team": team, "biggest_leg": big[0],
                     "biggest_leg_user": big[1], "rank": rank,
