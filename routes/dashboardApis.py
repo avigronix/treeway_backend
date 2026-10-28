@@ -474,7 +474,7 @@ async def admin_member_set_password(userCode: str, body: AdminSetPasswordModel, 
     """Any admin sets a member's password, no OTP (Vinay, 28 Oct), for a member who cannot use the email link.
     The admin tells the member by phone. Safeguards: a reason (audited with the admin's name; the password is never
     stored, logged or mailed), the member is logged out everywhere and must choose a new password at the next
-    login (nothing else works until then), the member gets a notice mail, and an admin can do 20 an hour."""
+    login (nothing else works until then), and an admin can do 20 an hour. The member gets no mail or notice."""
     await hit_limit(f"admin_set_password:{admin['id']}", SET_PASSWORD_PER_HOUR, window=3600,
                     msg="Too many password changes in an hour. Please try later.")
     async with cpo.transaction() as conn:
@@ -486,11 +486,7 @@ async def admin_member_set_password(userCode: str, body: AdminSetPasswordModel, 
     await forget_auth_user(u["id"])
     # A member locked out by wrong tries can log in with the new password at once.
     await redis_client.delete(f"loginfail:{u['user_code']}", f"loginfail:{u['mobile']}")
-    await send_notice_mail(u["email"], u["full_name"], "Your Treeway password was changed", [
-        f"Treeway support set a new password for your ID {u['user_code']} on {_when()}. "
-        "You have been logged out on every phone.",
-        "Log in with the password support gave you; the app will then ask you to choose your own.",
-        "If you did not ask for this, call Treeway support at once."])
+    # No mail or notice to the member (Vinay, 28 Oct): a member who cannot log in calls the admin.
     return respond({"msg": f"New password set for {u['user_code']}. Tell the member by phone; they must change it "
                            "at the next login.", "status": 200})
 
