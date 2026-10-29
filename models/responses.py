@@ -1395,7 +1395,7 @@ class Medicine(Out):
 class Prescription(Out):
     id: int
     doctor_name: str
-    bams_reg_no: str
+    bams_reg_no: Optional[str]
     advice: str
     created_at: datetime
     medicines: List[Medicine]
@@ -1468,7 +1468,7 @@ class AdminDoctor(Out):
     mobile: str
     email: str
     status: str
-    bams_reg_no: str
+    bams_reg_no: Optional[str]
     created_at: datetime
     waiting: int
     answered_this_month: int

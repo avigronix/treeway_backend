@@ -525,7 +525,13 @@ class ProductPatchModel(Clean):
 
 # ================================================================ doctor
 class DoctorCreateModel(AdminCreateModel):
-    bams_reg_no: str = Field(min_length=3, max_length=40, description="Shown on every prescription")
+    bams_reg_no: Optional[str] = Field(None, min_length=3, max_length=40,
+                                       description="Optional (Vinay 29 Oct); shown on prescriptions when given")
+
+    @field_validator("bams_reg_no", mode="before")
+    @classmethod
+    def _blank_is_none(cls, v):
+        return v or None
 
 
 class DoctorAssignModel(Clean):
