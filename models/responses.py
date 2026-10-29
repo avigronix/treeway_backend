@@ -941,6 +941,7 @@ class PublicP2P(Out):
     min: float
     max: float
     daily_max: float
+    max_level: int
 
 
 class PublicVideo(Out):

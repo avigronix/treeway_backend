@@ -142,6 +142,7 @@ def period_start(period: str) -> datetime:
 
 # Income credited to the Income Wallet after the 10% cut.
 INCOME_TYPES = ("level_income", "direct_bonus", "super3_income", "single_leg", "royalty", "s3_level")
+P2P_MAX_LEVEL = 5   # P2P goes to my downline levels 1..5 or my own sponsor (Vinay 29 Oct; was any depth)
 RANK_NAMES = ("Distributor", "Silver", "Gold", "Platinum", "Emerald", "Diamond")   # rank 1..6
 # Wallet history filter groups (Wallet screen).
 HISTORY_GROUPS = {

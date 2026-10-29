@@ -361,9 +361,13 @@ async def _p2p_target(user: Dict, to_code: str) -> Dict:
         fail(404, "Member not found or not active.")
     if to["id"] == user["id"]:
         fail(400, "You cannot send to yourself.")
-    # My downline at ANY depth (not only 25 levels), or my own sponsor. (bhaiya, 16 Oct: whole downline.)
-    if to["id"] != user["sponsor_id"] and await downline_level(user["id"], to["id"]) is None:
-        fail(403, "You can send only to your team or your sponsor.")
+    # My downline levels 1..5, or my own sponsor (Vinay 29 Oct; replaces "whole downline" of 16 Oct).
+    if to["id"] != user["sponsor_id"]:
+        level = await downline_level(user["id"], to["id"])
+        if level is None:
+            fail(403, "You can send only to your team or your sponsor.")
+        if level > P2P_MAX_LEVEL:
+            fail(403, f"You can send only to your team up to level {P2P_MAX_LEVEL} or your sponsor. This member is at level {level}.")
     return to
 
 

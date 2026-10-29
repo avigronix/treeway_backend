@@ -37,7 +37,7 @@ async def public_config():
         "min_withdraw": rupees(s["min_withdraw"]), "inactive_remove_days": s["inactive_remove_days"],
         "cut_percent": s["cut_percent"],
         "p2p": {"fee_percent": p2p["fee_percent"], "min": rupees(p2p["min"]), "max": rupees(p2p["max"]),
-                "daily_max": rupees(p2p["daily_max"])},
+                "daily_max": rupees(p2p["daily_max"]), "max_level": P2P_MAX_LEVEL},
         "video": {"reward": rupees(video["reward"]), "days": video["days"], "per_day": video["per_day"],
                   "seconds": video["seconds"]},
         "shop": {"order_max": rupees(s["shop"]["order_max"])},
