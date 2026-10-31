@@ -19,6 +19,10 @@ Tick each line on the server, in order. `deploy/preflight.py` checks most of the
       `treeway-api.conf` and `treeway-web.conf`, certificates with `sudo certbot --nginx -d treeway.avigronix.com -d apitreeway.avigronix.com`
       (behind Cloudflare instead: origin certificate + `scripts/update_cloudflare_ips.sh`, SSL "Full (strict)")
 - [ ] Cloudflare rate-limiting rule: `/api/v1/users/login*`, more than 30 requests / minute / IP -> block 10 min
+- [ ] Cloudflare Cache Rule "Bypass cache" for `/sw.js`, `/workbox-*.js`, `/index.html`, `/manifest.webmanifest`
+      (an old cached `sw.js` keeps members on an old app; seen 31 Oct). Check:
+      `curl -sI https://treeway.avigronix.com/sw.js` shows `cache-control: no-cache` and no `cf-cache-status: HIT`.
+      After every frontend deploy: Cloudflare → Caching → "Purge Everything".
 - [ ] Backup: `backup.env`, `rclone config`, age key pair (public key on the server, private key with Vinay +
       one more safe copy); run `backup/backup.sh` once by hand
 - [ ] Restore drill: run `backup/restore_drill.sh` once by hand; it must say "restore drill ok"
