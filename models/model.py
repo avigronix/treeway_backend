@@ -2,7 +2,7 @@ import re
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 MOBILE_RE = re.compile(r"^[6-9]\d{9}$")
 IFSC_RE = re.compile(r"^[A-Z]{4}0[A-Z0-9]{6}$")
@@ -300,9 +300,21 @@ class VideoItemModel(Clean):
     title: str = Field(min_length=2, max_length=120)
 
 
+class VideoLinkModel(Clean):
+    """One video of a day; its number is its place in the list."""
+    model_config = ConfigDict(extra="forbid")
+    platform: Literal["youtube", "facebook", "instagram"]
+    url: str = Field(min_length=10, max_length=500)
+    title: str = Field(min_length=2, max_length=120)
+
+
 class DayVideosModel(BaseModel):
-    videos: List[VideoItemModel] = Field(default_factory=list, max_length=10)
+    model_config = ConfigDict(extra="forbid")
+    videos: Optional[List[VideoLinkModel]] = Field(
+        None, max_length=10, description="The day's whole list, in order (empty = none; left out = unchanged)")
     start_time: Optional[time] = Field(None, description="IST, HH:MM; when the day's videos go live (none = 12:00 AM)")
+    version: Optional[str] = Field(None, max_length=200,
+                                   description="From GET /admin/videos: refused (409) if the day changed since")
 
     @field_validator("start_time")
     @classmethod

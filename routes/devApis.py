@@ -55,7 +55,11 @@ async def watch_videos(body: DevCodeModel):
     if done and done["rewarded_at"]:
         fail(409, "Today's videos are already done.")
     last = None
-    for slot in range((done["done_slots"] if done else 0) + 1, s["per_day"] + 1):
+    count = await cpo.fetch_val("SELECT count(*) FROM daily_videos WHERE video_date = $1 AND slot <= $2",
+                                today_ist(), s["per_day"])
+    if not count:
+        fail(400, "There are no videos today.")
+    for slot in range((done["done_slots"] if done else 0) + 1, count + 1):
         await start_video(slot, user)
         await cpo.execute(
             "UPDATE video_days SET current_started = current_started - make_interval(secs => $3), "

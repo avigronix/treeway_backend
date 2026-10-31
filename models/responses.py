@@ -631,8 +631,8 @@ class AdminMembersCount(Out):
 
 
 class MissingVideoDay(Out):
+    """A day (today or soon) without any video: members get no ₹20 that day."""
     date: date
-    missing: int
 
 
 class AdminQueue(Out):
@@ -1043,10 +1043,9 @@ class VideosToday(Out):
     day_no: Optional[int] = Field(description="Activation date is Day 1")
     days_total: int
     eligible: bool
-    ready: bool = Field(description="False = no complete set of links in the last 30 days, or today's start time "
-                                    "is still ahead: no lock, no ₹20 yet")
+    ready: bool = Field(description="False = no videos today, or today's start time is still ahead: no lock, "
+                                    "no ₹20 yet")
     starts_at: Optional[datetime] = Field(description="Today's videos go live at this time (only while it is ahead)")
-    links_from: Optional[date] = Field(description="Date of the links used when today has no full set")
     locked: bool = Field(description="True = keep the app locked until today's videos are done")
     all_done: bool
     done_count: int
@@ -1078,6 +1077,7 @@ class VideoDone(Out):
 class VideoDay(Out):
     date: date
     done: bool
+    off: bool = Field(description="No videos that day (not missed)")
 
 
 class VideoHistory(Out):
@@ -1098,19 +1098,21 @@ class AdminVideo(Out):
 class AdminVideos(Out):
     date: date
     videos: List[AdminVideo]
-    per_day: int
+    per_day: int = Field(description="The most videos a day")
     start_time: Optional[time] = Field(description="IST; null = 12:00 AM")
-    status: Literal["scheduled", "live", "ended", "incomplete"]
+    status: Literal["scheduled", "live", "ended", "empty"] = Field(
+        description="empty = no videos (no ₹20 that day); live = only links / titles can change; ended = read only")
+    version: str = Field(description="Send back with PUT: a save from an old screen is refused")
     missing_days: List[MissingVideoDay]
 
 
 class VideoScheduleDay(Out):
     date: date
-    links: int = Field(description="Links set (of per_day)")
-    per_day: int
+    links: int = Field(description="Videos set that day (1 to per_day)")
+    per_day: int = Field(description="The most videos a day")
     start_time: Optional[time] = Field(description="IST; null = 12:00 AM")
-    status: Literal["scheduled", "live", "ended", "incomplete"] = Field(
-        description="incomplete = fewer links than needed: members get the last full day's videos")
+    status: Literal["scheduled", "live", "ended", "empty"] = Field(
+        description="empty = no videos: members get no ₹20 that day")
 
 
 class MissingDays(Out):

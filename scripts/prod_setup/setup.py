@@ -33,7 +33,7 @@ from pydantic import ValidationError  # noqa: E402
 
 from base import (IMAGE_FILES, MAX_FILE_BYTES, UPLOAD_ROOT, audit, clear_settings_cache, cpo, get_settings,  # noqa: E402
                   hash_password_async, looks_like, new_user_code, now_utc, redis_client, to_paise, today_ist)
-from models.model import DayVideosModel, DoctorCreateModel, ProductFormModel, VideoItemModel  # noqa: E402
+from models.model import DoctorCreateModel, ProductFormModel, VideoItemModel  # noqa: E402
 from routes.companyApis import PUBLIC_COMPANY_KEYS, _check_company  # noqa: E402
 from routes.doctorApis import _assign_waiting  # noqa: E402
 from routes.videoApis import _check_link  # noqa: E402
@@ -235,9 +235,9 @@ async def products(path: Path, apply: bool) -> Dict[str, Any]:
 
 # ================================================================ videos
 async def videos(path: Path, apply: bool) -> Dict[str, Any]:
-    """videos.csv columns: date (YYYY-MM-DD, today or later), slot (1..videos a day), platform
-    (youtube / facebook / instagram), url (https), title. A slot already set with the same link is skipped;
-    a different link replaces it (like the admin screen)."""
+    """videos.csv columns: date (YYYY-MM-DD, today or later), slot (1 up to the most a day, 1, 2, 3 ... with no
+    gap), platform (youtube / facebook / instagram), url (https), title. A slot already set with the same link is
+    skipped; a different link replaces it (like the admin screen). 1 to 4 videos a day (Vinay 31 Oct)."""
     rows = _read_csv(path)
     per_day = (await get_settings())["video"]["per_day"]
     today = today_ist()
@@ -269,9 +269,13 @@ async def videos(path: Path, apply: bool) -> Dict[str, Any]:
 
     async def work(conn, admin_id, report, files):
         for d in sorted(by_day):
-            DayVideosModel(videos=[x["v"] for x in by_day[d]])  # same limits as the screen (1-10 a day)
             old = {r["slot"]: r for r in await cpo.fetch_all(
                 "SELECT slot, platform, url, title FROM daily_videos WHERE video_date = $1", d, conn=conn)}
+            # A day's videos are 1, 2, 3 ... with no gap (Vinay 31 Oct: 1 to 4 a day): a member watches them in
+            # order and gets the ₹20 after the last, so a missing number in between would leave them stuck.
+            final = sorted(set(old) | {x["v"].slot for x in by_day[d]})
+            if final != list(range(1, len(final) + 1)):
+                raise Bad([f"{d}: videos must be numbered 1, 2, 3 ... with no gap (this would give {final})"])
             changed = []
             for x in by_day[d]:
                 v = x["v"]
@@ -296,8 +300,8 @@ async def videos(path: Path, apply: bool) -> Dict[str, Any]:
             d = date.fromordinal(today.toordinal() + i)
             have = await cpo.fetch_val("SELECT count(*) FROM daily_videos WHERE video_date = $1 AND slot <= $2",
                                        d, per_day, conn=conn)
-            if have < per_day:
-                missing.append(f"{d} ({per_day - have} missing)")
+            if have == 0:
+                missing.append(f"{d} (no videos)")
         report["next_7_days_missing"] = missing
 
     return await _run(apply, work)
@@ -360,7 +364,7 @@ async def status() -> Dict[str, Any]:
         "complaint_categories": await cpo.fetch_val("SELECT count(*) FROM complaint_categories"),
         "products_live": await cpo.fetch_val("SELECT count(*) FROM products WHERE is_active AND stock > 0"),
         "doctors_active": await cpo.fetch_val("SELECT count(*) FROM users WHERE role = 'DOCTOR' AND status = 'active'"),
-        "video_days_missing_next_7": [str(r["d"]) for r in video_days if r["n"] < per_day],
+        "video_days_missing_next_7": [str(r["d"]) for r in video_days if r["n"] == 0],
         "pincodes": await cpo.fetch_val("SELECT count(*) FROM pincodes"),
         "smtp_set": bool(os.environ.get("SMTP_HOST") and (os.environ.get("SMTP_PASSWORD") or os.environ.get("SMTP_PASS"))),
         "app_env": os.environ.get("APP_ENV", "local"),

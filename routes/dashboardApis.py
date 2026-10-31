@@ -77,7 +77,7 @@ async def admin_dashboard(admin=Depends(tokenRequired(["ADMIN"]))):
         "SELECT purpose, count(*) AS n FROM payment_requests WHERE status = 'pending' GROUP BY purpose")}
     queue["payment_requests_by_purpose"] = {p: by_purpose.get(p, 0) for p in ("activation", "fund", "pins")}
     queue["withdrawals_amount"] = rupees(queue["withdrawals_amount"])
-    queue["video_days_missing"] = await missing_video_days(2)   # today + tomorrow without all 4 links
+    queue["video_days_missing"] = await missing_video_days(2)   # today + tomorrow without any video
     totals, as_of = await cached("admin_dashboard_totals", 60, _dashboard_totals)
     return respond({"msg": "", "status": 200, "data": {"queue": queue, **totals, "totals_as_of": as_of}})
 

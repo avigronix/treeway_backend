@@ -1,17 +1,20 @@
 """YFI daily videos (Phase B).
 
-Rules (SRS 4.1 + Vinay, 14 Oct 2026):
-- 4 videos a day (setting video.per_day), each watched for 30 seconds (video.seconds), checked by the server.
+Rules (SRS 4.1 + Vinay, 14 Oct 2026; video count per day: Vinay, 31 Oct):
+- Each day has its own 1 to 4 videos (setting video.per_day = the most a day), each watched for 30 seconds
+  (video.seconds), checked by the server.
 - Videos go in order; starting a video again (app closed) restarts its timer.
-- The moment the last video is done, ₹20 (video.reward) goes to the Product Wallet in the same request,
-  once per day (ref yfi:{user}:{date}), no 10% cut.
+- The moment the day's last video is done (1 of 1, 3 of 3, 4 of 4 ...), ₹20 (video.reward) goes to the Product
+  Wallet in the same request, once per day (ref yfi:{user}:{date}), no 10% cut. The count used for the ₹20 is
+  read from the database in that request, never from the 30-second cache.
+- A day without videos has none: no lock, no ₹20 (no fallback to another day's links any more).
 - Only active IDs, from the activation date (Day 1) to Day 150 (video.days). A missed day is lost.
-- All 4 videos are needed for the ₹20. If the admin did not set all links for a day, the links of the last
-  day that had all of them (normally yesterday) are used automatically; the admin warning stays.
 - The day is the IST date. A video started before midnight must be started again after midnight.
 - Start time (Vinay, 22 Oct): each day's videos go live at the admin's IST start time (default 12:00 AM).
-  Before it the app is open (no lock, no ₹20 yet); from it the lock comes. A day without all links uses the
-  last full day's links from 12:00 AM, as before. A live day's time can move earlier, never later.
+  Before it the app is open (no lock, no ₹20 yet); from it the lock comes. A live day's time can move earlier,
+  never later.
+- Admin (Vinay, 31 Oct): add / edit / remove videos and delete a day until it goes live; once live only a link or
+  title can change (the count stays, so no member's ₹20 rule changes mid-day). Past days are read only.
 """
 
 import math
@@ -33,37 +36,37 @@ PLATFORM_HOSTS = {
 }
 
 
-FALLBACK_DAYS = 30
+DAY_ROWS_SQL = ("SELECT slot, platform, url, title FROM daily_videos WHERE video_date = $1 AND slot <= $2 "
+                "ORDER BY slot")
 
 
-async def day_videos(d: date, per_day: int) -> tuple[List[Dict], Optional[date]]:
-    """The links members watch on day `d`, and the date they came from if not `d` itself.
-    A day without all links uses the last complete day before it (Vinay, 14 Oct). Cached for 30 seconds,
-    because every member opens this right after login."""
+async def day_videos(d: date, most: int) -> List[Dict]:
+    """Day `d`'s own videos (1 to `most`, in order). Cached for 30 seconds, because every member opens this right
+    after login: use it to SHOW videos, never to decide money (see _count_now)."""
     hit = _videos_cache.get(d)
     if hit and time.monotonic() - hit[0] < VIDEO_CACHE_SECONDS:
-        return hit[1][:2]
-    source = await cpo.fetch_val(
-        "SELECT video_date FROM daily_videos WHERE video_date BETWEEN $1 AND $2 AND slot <= $3 "
-        "GROUP BY video_date HAVING count(*) >= $3 ORDER BY video_date DESC LIMIT 1",
-        d - timedelta(days=FALLBACK_DAYS), d, per_day)
-    rows = await cpo.fetch_all("SELECT slot, platform, url, title FROM daily_videos WHERE video_date = $1 AND slot <= $2 "
-                               "ORDER BY slot", source, per_day) if source else []
+        return hit[1][0]
+    rows = await cpo.fetch_all(DAY_ROWS_SQL, d, most)
     start = await cpo.fetch_val("SELECT start_time FROM video_day_times WHERE video_date = $1", d)
-    result = (rows, source if source and source != d else None, start)
-    _videos_cache[d] = (time.monotonic(), result)
-    return result[:2]
+    _videos_cache[d] = (time.monotonic(), (rows, start))
+    return rows
 
 
 async def live_from(d: date) -> Optional[datetime]:
-    """When day `d`'s own videos go live (IST). None = from 12:00 AM (no time set, or the day uses another
-    day's links). Uses the same 30-second cache as the links."""
-    per_day = (await get_settings())["video"]["per_day"]
-    _, from_day = await day_videos(d, per_day)
-    start = _videos_cache[d][1][2]
-    if from_day is not None or start is None:
+    """When day `d`'s videos go live (IST). None = no waiting (from 12:00 AM, or no videos that day).
+    Uses the same 30-second cache as the links."""
+    most = (await get_settings())["video"]["per_day"]
+    rows = await day_videos(d, most)
+    start = _videos_cache[d][1][1]
+    if not rows or start is None:
         return None
     return datetime.combine(d, start, IST)
+
+
+async def _count_now(d: date, most: int, conn=None) -> int:
+    """How many videos day `d` has, read now from the database (the ₹20 rule uses this, not the cache)."""
+    return await cpo.fetch_val("SELECT count(*) FROM daily_videos WHERE video_date = $1 AND slot <= $2",
+                               d, most, conn=conn)
 
 
 def day_no(activated_at: Optional[datetime], today: date) -> Optional[int]:
@@ -73,23 +76,18 @@ def day_no(activated_at: Optional[datetime], today: date) -> Optional[int]:
     return (today - activated_at.astimezone(IST).date()).days + 1
 
 
-def _ready(videos: List[Dict], per_day: int) -> bool:
-    return {v["slot"] for v in videos} >= set(range(1, per_day + 1))
-
-
 async def _member_day(user_id: int) -> Dict:
     """Everything needed to decide what the member can do today."""
     s = (await get_settings())["video"]
     today = today_ist()
     u = await cpo.fetch_one("SELECT status, role, activated_at FROM users WHERE id = $1", user_id)
     n = day_no(u["activated_at"], today)
-    videos, from_day = await day_videos(today, s["per_day"])
+    videos = await day_videos(today, s["per_day"])
     starts = await live_from(today)
     waiting = starts is not None and now_utc() < starts
     return {
         "s": s, "today": today, "day_no": n, "videos": [] if waiting else videos,
-        "ready": _ready(videos, s["per_day"]) and not waiting, "starts_at": starts if waiting else None,
-        "links_from": from_day,
+        "ready": bool(videos) and not waiting, "starts_at": starts if waiting else None,
         "eligible": u["role"] == "USER" and u["status"] == "active" and n is not None and 1 <= n <= s["days"],
     }
 
@@ -102,7 +100,7 @@ async def _check_can_watch(md: Dict):
     if md["starts_at"]:
         fail(400, f"Today's videos start at {md['starts_at'].astimezone(IST):%-I:%M %p}.")
     if not md["ready"]:
-        fail(400, "Today's videos are not ready yet. The app is open for you today.")  # no complete day in 30 days
+        fail(400, "There are no videos today. The app is open for you today.")
 
 
 # ================================================================ member
@@ -132,9 +130,9 @@ async def videos_today(user=Depends(tokenRequired())):
     all_done = row["rewarded_at"] is not None
     return respond({"msg": "", "status": 200, "data": {
         "date": md["today"], "day_no": md["day_no"], "days_total": s["days"], "eligible": md["eligible"],
-        "ready": md["ready"], "starts_at": md["starts_at"], "links_from": md["links_from"],
+        "ready": md["ready"], "starts_at": md["starts_at"],
         "locked": md["eligible"] and md["ready"] and not all_done,
-        "all_done": all_done, "done_count": row["done_slots"], "per_day": s["per_day"],
+        "all_done": all_done, "done_count": row["done_slots"], "per_day": len(md["videos"]),
         "seconds": s["seconds"], "reward": rupees(s["reward"]), "videos": videos,
         "days_earned": earned["days"], "earned_total": rupees(earned["total"]),
         "max_total": rupees(s["reward"] * s["days"]),
@@ -157,13 +155,17 @@ async def start_video(slot: int, user=Depends(tokenRequired(activeOnly=True))):
             fail(409, f"Video {slot} is already watched.")
         if slot != row["done_slots"] + 1:
             fail(400, f"Watch video {row['done_slots'] + 1} first.")
+        video = await cpo.fetch_one("SELECT slot, platform, url, title FROM daily_videos "
+                                    "WHERE video_date = $1 AND slot = $2 AND slot <= $3",
+                                    md["today"], slot, md["s"]["per_day"], conn=conn)
+        if not video:
+            fail(400, "This video is not in today's list. Please open the app again.")
         started = await cpo.fetch_val(
             "UPDATE video_days SET current_slot = $3, current_started = now(), "
             "log = jsonb_set(log, ARRAY[$4], jsonb_build_object('started', now(), "
             "'starts', coalesce((log->$4->>'starts')::int, 0) + 1)) "
             "WHERE user_id = $1 AND watch_date = $2 RETURNING current_started",
             user["id"], md["today"], slot, str(slot), conn=conn)
-    video = next(v for v in md["videos"] if v["slot"] == slot)
     return respond({"msg": "", "status": 200, "data": {**video, "started_at": started, "seconds": md["s"]["seconds"]}})
 
 
@@ -189,7 +191,10 @@ async def complete_video(slot: int, user=Depends(tokenRequired(activeOnly=True))
             "UPDATE video_days SET done_slots = done_slots + 1, current_slot = NULL, current_started = NULL, "
             "log = jsonb_set(log, ARRAY[$3], (log->$3) || jsonb_build_object('done', now())) "
             "WHERE user_id = $1 AND watch_date = $2 RETURNING done_slots", user["id"], md["today"], str(slot), conn=conn)
-        if done >= s["per_day"]:
+        count = await _count_now(md["today"], s["per_day"], conn)   # the database, never the cache
+        if count == 0:
+            fail(400, "There are no videos today. The app is open for you today.")
+        if done >= count:
             await wallet_move(conn, user["id"], "product", s["reward"], "yfi_daily", f"yfi:{user['id']}:{md['today']}",
                               {"date": str(md["today"]), "day_no": md["day_no"]})
             await cpo.execute("UPDATE video_days SET rewarded_at = now() WHERE user_id = $1 AND watch_date = $2",
@@ -202,7 +207,7 @@ async def complete_video(slot: int, user=Depends(tokenRequired(activeOnly=True))
 
 @videoApi.get("/videos/history", response_model=R.Envelope[R.VideoHistory])
 async def videos_history(days: int = Query(14, ge=1, le=150), user=Depends(tokenRequired())):
-    """'Last 14 days: 12 done, 2 missed' (only days since activation)."""
+    """'Last 14 days: 12 done, 2 missed' (only days since activation). A day without videos is `off`, not missed."""
     md = await _member_day(user["id"])
     if md["day_no"] is None:
         return respond({"msg": "", "status": 200, "data": {"days": [], "done": 0, "missed": 0}})
@@ -210,73 +215,95 @@ async def videos_history(days: int = Query(14, ge=1, le=150), user=Depends(token
     done = {r["d"] for r in await cpo.fetch_all(
         "SELECT (meta->>'date')::date AS d FROM wallet_ledger WHERE user_id = $1 AND type = 'yfi_daily' "
         "AND created_at >= $2", user["id"], datetime.combine(first, datetime.min.time(), IST))}
-    out = [{"date": first + timedelta(days=i), "done": first + timedelta(days=i) in done}
-           for i in range((md["today"] - first).days + 1)]
+    had = {r["video_date"] for r in await cpo.fetch_all(
+        "SELECT DISTINCT video_date FROM daily_videos WHERE video_date BETWEEN $1 AND $2 AND slot <= $3",
+        first, md["today"], md["s"]["per_day"])}
+    out = []
+    for i in range((md["today"] - first).days + 1):
+        d = first + timedelta(days=i)
+        out.append({"date": d, "done": d in done, "off": d not in done and d not in had})
     # Today is not "missed" yet.
-    missed = sum(1 for d in out if not d["done"] and d["date"] != md["today"])
+    missed = sum(1 for d in out if not d["done"] and not d["off"] and d["date"] != md["today"])
     return respond({"msg": "", "status": 200, "data": {"days": out, "done": sum(d["done"] for d in out), "missed": missed}})
 
 
 # ================================================================ admin
 async def missing_video_days(n: int = 7) -> List[Dict]:
-    """Today and the next days that do not have all links yet (admin warning)."""
-    per_day = (await get_settings())["video"]["per_day"]
+    """Today and the next days without any video: members get no ₹20 on them (admin warning)."""
+    most = (await get_settings())["video"]["per_day"]
     today = today_ist()
     rows = await cpo.fetch_all(
-        "SELECT d::date AS date, (SELECT count(*) FROM daily_videos v WHERE v.video_date = d::date AND v.slot <= $3) AS set "
-        "FROM generate_series($1::date, $2::date, interval '1 day') AS d", today, today + timedelta(days=n - 1), per_day)
-    return [{"date": r["date"], "missing": per_day - r["set"]} for r in rows if r["set"] < per_day]
+        "SELECT d::date AS date FROM generate_series($1::date, $2::date, interval '1 day') AS d "
+        "WHERE NOT EXISTS (SELECT 1 FROM daily_videos v WHERE v.video_date = d::date AND v.slot <= $3) ORDER BY 1",
+        today, today + timedelta(days=n - 1), most)
+    return [{"date": r["date"]} for r in rows]
 
 
-async def _live_now(d: date) -> bool:
-    """Members can watch day `d`'s videos right now (its own links after the start time, or another day's)."""
+async def _live_now(d: date, conn=None) -> bool:
+    """Members can watch day `d`'s videos right now: today, at least one video, after the start time.
+    Read from the database (not the cache): admin changes depend on it."""
     if d != today_ist():
         return False
-    per_day = (await get_settings())["video"]["per_day"]
-    videos, _ = await day_videos(d, per_day)
-    starts = await live_from(d)
-    return _ready(videos, per_day) and (starts is None or now_utc() >= starts)
+    if not await _count_now(d, (await get_settings())["video"]["per_day"], conn):
+        return False
+    start = await cpo.fetch_val("SELECT start_time FROM video_day_times WHERE video_date = $1", d, conn=conn)
+    return start is None or now_utc() >= datetime.combine(d, start, IST)
 
 
-def _day_status(d: date, links: int, per_day: int, start: Optional[dtime]) -> str:
-    """scheduled | live | ended | incomplete (fewer links than needed: members get the last full day's)."""
+def _day_status(d: date, links: int, start: Optional[dtime]) -> str:
+    """ended (past, read only) | empty (no videos: no ₹20 that day) | live | scheduled."""
     today = today_ist()
     if d < today:
         return "ended"
-    if links < per_day:
-        return "incomplete"
+    if links == 0:
+        return "empty"
     if d == today and (start is None or now_utc() >= datetime.combine(d, start, IST)):
         return "live"
     return "scheduled"
 
 
+async def _version(d: date, conn=None) -> str:
+    """Changes whenever the day's videos or start time change: a save made from an old screen is refused."""
+    r = await cpo.fetch_one(
+        "SELECT (SELECT count(*) FROM daily_videos WHERE video_date = $1) AS n, "
+        "(SELECT max(updated_at) FROM daily_videos WHERE video_date = $1) AS v, "
+        "(SELECT updated_at FROM video_day_times WHERE video_date = $1) AS t", d, conn=conn)
+    return f"{r['n']}|{r['v'].isoformat() if r['v'] else '-'}|{r['t'].isoformat() if r['t'] else '-'}"
+
+
+async def _lock_day(conn, d: date):
+    """One admin change of a day at a time (two admins, or a double tap)."""
+    await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1))", f"videos:{d}")
+
+
 @videoApi.get("/admin/videos", response_model=R.Envelope[R.AdminVideos])
 async def admin_videos(day: Optional[date] = None, admin=Depends(tokenRequired(["ADMIN"]))):
+    """One day (default tomorrow): its videos, start time and status. Past days can be opened to look at."""
     day = day or today_ist() + timedelta(days=1)
-    per_day = (await get_settings())["video"]["per_day"]
+    most = (await get_settings())["video"]["per_day"]
     rows = await cpo.fetch_all(
         "SELECT v.slot, v.platform, v.url, v.title, v.updated_at, u.full_name AS updated_by_name "
-        "FROM daily_videos v LEFT JOIN users u ON u.id = v.updated_by WHERE v.video_date = $1 ORDER BY v.slot", day)
+        "FROM daily_videos v LEFT JOIN users u ON u.id = v.updated_by WHERE v.video_date = $1 AND v.slot <= $2 "
+        "ORDER BY v.slot", day, most)
     start = await cpo.fetch_val("SELECT start_time FROM video_day_times WHERE video_date = $1", day)
     return respond({"msg": "", "status": 200, "data": {
-        "date": day, "videos": rows, "per_day": per_day, "start_time": start,
-        "status": _day_status(day, sum(1 for r in rows if r["slot"] <= per_day), per_day, start),
+        "date": day, "videos": rows, "per_day": most, "start_time": start,
+        "status": _day_status(day, len(rows), start), "version": await _version(day),
         "missing_days": await missing_video_days()}})
 
 
 @videoApi.get("/admin/videos/schedule", response_model=R.Envelope[List[R.VideoScheduleDay]])
 async def video_schedule(days: int = Query(14, ge=1, le=60), admin=Depends(tokenRequired(["ADMIN"]))):
-    """The last 3 days and the next `days` days: links set, start time, status."""
-    per_day = (await get_settings())["video"]["per_day"]
+    """The last 3 days and the next `days` days: videos set, start time, status."""
+    most = (await get_settings())["video"]["per_day"]
     today = today_ist()
     rows = await cpo.fetch_all(
         "SELECT d::date AS date, (SELECT count(*) FROM daily_videos v WHERE v.video_date = d::date AND v.slot <= $3) "
         "AS links, (SELECT start_time FROM video_day_times t WHERE t.video_date = d::date) AS start_time "
         "FROM generate_series($1::date, $2::date, interval '1 day') AS d ORDER BY 1",
-        today - timedelta(days=3), today + timedelta(days=days - 1), per_day)
+        today - timedelta(days=3), today + timedelta(days=days - 1), most)
     return respond({"msg": "", "status": 200, "data": [
-        {**r, "per_day": per_day, "status": _day_status(r["date"], r["links"], per_day, r["start_time"])}
-        for r in rows]})
+        {**r, "per_day": most, "status": _day_status(r["date"], r["links"], r["start_time"])} for r in rows]})
 
 
 def _check_link(platform: str, url: str):
@@ -290,52 +317,66 @@ def _check_link(platform: str, url: str):
 
 @videoApi.put("/admin/videos/{day}", response_model=R.Envelope[R.MissingDays])
 async def set_day_videos(day: date, body: DayVideosModel, admin=Depends(tokenRequired(["ADMIN"]))):
-    """Sets (or replaces) the given slots and / or the start time of a day. Past days cannot be changed. A day
-    members can already watch keeps its start time or moves it earlier (they may be half way)."""
+    """Saves a day: `videos` is the day's whole list in order (video 1, 2 ...; up to video.per_day; an empty list
+    removes them all; left out = unchanged) and / or the start time. Until the day goes live everything can change;
+    once live only links and titles (same count) and the start time only earlier. Past days cannot be changed."""
     if day < today_ist():
         fail(400, "Past days cannot be changed.")
-    if not body.videos and body.start_time is None:
+    if body.videos is None and body.start_time is None:
         fail(400, "Add a video or a start time.")
-    per_day = (await get_settings())["video"]["per_day"]
-    slots = [v.slot for v in body.videos]
-    if len(set(slots)) != len(slots) or (slots and max(slots) > per_day):
-        fail(400, f"Use slots 1 to {per_day}, each once.")
-    if body.start_time is not None and await _live_now(day) \
-            and datetime.combine(day, body.start_time, IST) > now_utc():
-        fail(409, "Today's videos are already live, so the start time can only move earlier.")
-    for v in body.videos:
+    most = (await get_settings())["video"]["per_day"]
+    if body.videos is not None and len(body.videos) > most:
+        fail(400, f"A day can have at most {most} videos.")
+    for v in body.videos or []:
         _check_link(v.platform, v.url)
     async with cpo.transaction() as conn:
-        old = await cpo.fetch_all("SELECT slot, platform, url, title FROM daily_videos WHERE video_date = $1", day, conn=conn)
+        await _lock_day(conn, day)
+        if body.version is not None and body.version != await _version(day, conn):
+            fail(409, "Someone changed this day just now. Open it again to see the latest videos.")
+        old = await cpo.fetch_all("SELECT slot, platform, url, title FROM daily_videos WHERE video_date = $1 "
+                                  "ORDER BY slot", day, conn=conn)
         old_time = await cpo.fetch_val("SELECT start_time FROM video_day_times WHERE video_date = $1", day, conn=conn)
+        live = await _live_now(day, conn)
+        if live and body.videos is not None and len(body.videos) != sum(1 for o in old if o["slot"] <= most):
+            fail(409, "Today's videos are live: you can change a link or a title, not add or remove videos.")
+        if live and body.start_time is not None and datetime.combine(day, body.start_time, IST) > now_utc():
+            fail(409, "Today's videos are already live, so the start time can only move earlier.")
         if body.start_time is not None:
             await cpo.execute(
                 "INSERT INTO video_day_times (video_date, start_time, updated_by) VALUES ($1, $2, $3) "
                 "ON CONFLICT (video_date) DO UPDATE SET start_time = EXCLUDED.start_time, "
                 "updated_by = EXCLUDED.updated_by, updated_at = now()", day, body.start_time, admin["id"], conn=conn)
-        for v in body.videos:
-            await cpo.execute(
-                "INSERT INTO daily_videos (video_date, slot, platform, url, title, updated_by) VALUES ($1, $2, $3, $4, $5, $6) "
-                "ON CONFLICT (video_date, slot) DO UPDATE SET platform = EXCLUDED.platform, url = EXCLUDED.url, "
-                "title = EXCLUDED.title, updated_by = EXCLUDED.updated_by, updated_at = now()",
-                day, v.slot, v.platform, v.url, v.title, admin["id"], conn=conn)
+        if body.videos is not None:
+            by_slot = {o["slot"]: o for o in old}
+            for slot, v in enumerate(body.videos, start=1):
+                o = by_slot.get(slot)
+                if o and (o["platform"], o["url"], o["title"]) == (v.platform, v.url, v.title):
+                    continue   # unchanged: keeps who saved it and when
+                await cpo.execute(
+                    "INSERT INTO daily_videos (video_date, slot, platform, url, title, updated_by) "
+                    "VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (video_date, slot) DO UPDATE SET "
+                    "platform = EXCLUDED.platform, url = EXCLUDED.url, title = EXCLUDED.title, "
+                    "updated_by = EXCLUDED.updated_by, updated_at = now()",
+                    day, slot, v.platform, v.url, v.title, admin["id"], conn=conn)
+            await cpo.execute("DELETE FROM daily_videos WHERE video_date = $1 AND slot > $2",
+                              day, len(body.videos), conn=conn)
         await audit(conn, admin["id"], "videos_set", str(day),
-                    {"old": old, "new": [v.model_dump() for v in body.videos],
+                    {"old": old, "new": None if body.videos is None else [v.model_dump() for v in body.videos],
                      "old_start": str(old_time) if old_time else None,
                      "new_start": str(body.start_time) if body.start_time else None})
-    _videos_cache.clear()  # a fix today can change what later days fall back to
+    _videos_cache.clear()
     return respond({"msg": "Videos saved.", "status": 200, "data": {"missing_days": await missing_video_days()}})
 
 
 @videoApi.delete("/admin/videos/{day}", response_model=R.Envelope[R.MissingDays])
 async def delete_day_videos(day: date, admin=Depends(tokenRequired(["ADMIN"]))):
-    """Removes a day's links and start time, if members cannot watch them yet (the day then uses the last
-    full day's links, as any day without links)."""
+    """Removes a day's videos and start time, if members cannot watch them yet. That day then has no videos."""
     if day < today_ist():
         fail(400, "Past days cannot be changed.")
-    if await _live_now(day):
-        fail(409, "Today's videos are live and members are watching them. Fix a link instead.")
     async with cpo.transaction() as conn:
+        await _lock_day(conn, day)
+        if await _live_now(day, conn):
+            fail(409, "Today's videos are live and members are watching them. Fix a link instead.")
         old = await cpo.fetch_all("DELETE FROM daily_videos WHERE video_date = $1 RETURNING slot, platform, url, title",
                                   day, conn=conn)
         old_time = await cpo.fetch_val("DELETE FROM video_day_times WHERE video_date = $1 RETURNING start_time",
