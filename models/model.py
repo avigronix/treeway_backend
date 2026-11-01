@@ -7,12 +7,23 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, mo
 MOBILE_RE = re.compile(r"^[6-9]\d{9}$")
 IFSC_RE = re.compile(r"^[A-Z]{4}0[A-Z0-9]{6}$")
 PAN_RE = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
-UTR_RE = re.compile(r"^[A-Za-z0-9]{6,30}$")
+UTR_RE = re.compile(r"^[A-Za-z0-9]{6,30}$")   # a bank UTR the admin types (NEFT / RTGS can be longer)
+# A member's payment is a UPI payment to the company: its UTR (UPI Ref No) is always 12 digits (Vinay, 1 Nov).
+UPI_UTR_RE = re.compile(r"^[0-9]{12}$")   # not \d: that also takes other scripts' digits (४१२…)
+UPI_UTR_ERROR = "The UTR has 12 digits (like 412345678901). Find it in your UPI app's payment details."
 CODE_RE = re.compile(r"^TW\d{7}$")
 
 
 def _strip(v):
     return v.strip() if isinstance(v, str) else v
+
+
+def _upi_utr(v: str) -> str:
+    """12 digits; spaces (as some apps show it: 4123 4567 8901) are removed."""
+    v = re.sub(r"\s+", "", v)
+    if not UPI_UTR_RE.match(v):
+        raise ValueError(UPI_UTR_ERROR)
+    return v
 
 
 class Clean(BaseModel):
@@ -164,10 +175,7 @@ class PaymentRequestModel(Clean):
     @field_validator("utr")
     @classmethod
     def _utr(cls, v):
-        v = v.upper()
-        if not UTR_RE.match(v):
-            raise ValueError("Enter a valid UTR / transaction ID.")
-        return v
+        return _upi_utr(v)
 
     @model_validator(mode="after")
     def _purpose(self):
@@ -439,6 +447,16 @@ class OrderPreviewModel(BaseModel):
 
 
 class OrderUtrModel(Clean):
+    courier_utr: str
+
+    @field_validator("courier_utr")
+    @classmethod
+    def _utr(cls, v):
+        return _upi_utr(v)
+
+
+class CourierRefundModel(Clean):
+    """The admin sent the delivery money back from the bank: a bank UTR, not a member's UPI one."""
     courier_utr: str
 
     @field_validator("courier_utr")

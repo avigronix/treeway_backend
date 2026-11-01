@@ -18,8 +18,8 @@ import asyncpg
 from base import *
 from mlmEngine import wallet_move
 from models import responses as R
-from models.model import (CourierRateModel, CourierReviewModel, OrderCancelModel, OrderPreviewModel, OrderStatusModel,
-                          OrderUtrModel)
+from models.model import (CourierRateModel, CourierRefundModel, CourierReviewModel, OrderCancelModel, OrderPreviewModel,
+                          OrderStatusModel, OrderUtrModel)
 
 shopApi = APIRouter()
 
@@ -447,7 +447,7 @@ async def order_status(orderId: int, body: OrderStatusModel, admin=Depends(token
 
 
 @shopApi.post("/admin/orders/{orderId}/courier-refunded", response_model=R.Envelope[R.NoData])
-async def courier_refunded(orderId: int, body: OrderUtrModel, admin=Depends(tokenRequired(["ADMIN"]))):
+async def courier_refunded(orderId: int, body: CourierRefundModel, admin=Depends(tokenRequired(["ADMIN"]))):
     """The admin sent the delivery money back from the bank: record its UTR."""
     async with cpo.transaction() as conn:
         o = await _load_order(orderId, conn, lock=True)
