@@ -10,7 +10,7 @@ rankApi = APIRouter()
 
 @rankApi.get("/rank/me", response_model=R.Envelope[R.MyRank])
 async def my_rank(user=Depends(tokenRequired())):
-    """'Rank and Royalty' screen. Numbers are from last night's count (`as_of`)."""
+    """'Rank and Royalty' screen. Directs are live (Vinay 1 Nov); team numbers are from the night count (`as_of`)."""
     s = await get_settings()
     need, cap_pct = s["ranks"]["need"], s["ranks"]["leg_cap_percent"]
     st = await cpo.fetch_one(
@@ -24,11 +24,15 @@ async def my_rank(user=Depends(tokenRequired())):
         kind = "active directs" if i == 1 else "active team"
         ranks.append({"rank": i, "name": name, "need": need[name], "counts": kind,
                       "status": "done" if i <= rank else ("next" if i == rank + 1 else "locked")})
+    # Live, so the screen never waits for the night (Vinay 26 Oct "5 directs but no rank", 1 Nov "turant").
+    live = await cpo.fetch_one(
+        "SELECT count(*) AS joined, count(*) FILTER (WHERE status = 'active') AS active_now FROM users "
+        "WHERE sponsor_id = $1 AND role = 'USER' AND status <> 'removed'", user["id"])
     nxt = None
     if rank < len(RANK_NAMES):
         name = RANK_NAMES[rank]
         cap = need[name] * cap_pct // 100
-        nxt = {"name": name, "need": need[name], "counted": st["next_counted"],
+        nxt = {"name": name, "need": need[name], "counted": live["active_now"] if rank == 0 else st["next_counted"],
                "one_line_max": cap if rank >= 1 else None,
                "biggest_line": {"name": st["biggest_leg_name"], "user_code": st["biggest_leg_code"],
                                 "active": st["biggest_leg"], "counted": min(st["biggest_leg"], cap)}
@@ -36,10 +40,6 @@ async def my_rank(user=Depends(tokenRequired())):
     last = await cpo.fetch_one("SELECT amount, meta, created_at FROM wallet_ledger WHERE user_id = $1 AND type = 'royalty' "
                                "ORDER BY id DESC LIMIT 1", user["id"])
     me = await cpo.fetch_one("SELECT s3l_reached_on FROM users WHERE id = $1", user["id"])
-    # Live, so the screen can say why the count is lower (Vinay 26 Oct: "5 directs but no rank").
-    live = await cpo.fetch_one(
-        "SELECT count(*) AS joined, count(*) FILTER (WHERE status = 'active') AS active_now FROM users "
-        "WHERE sponsor_id = $1 AND role = 'USER' AND status <> 'removed'", user["id"])
     s3l = s["s3_level"]
     first_pay = None
     if me["s3l_reached_on"]:
@@ -52,7 +52,7 @@ async def my_rank(user=Depends(tokenRequired())):
         "next_count_at": next_run(now_utc()),
         "last_royalty": {"amount": rupees(last["amount"]), "month": last["meta"].get("month"), "paid_at": last["created_at"]}
         if last else None,
-        "s3_level": {"directs_needed": s3l["directs"], "active_directs": st["active_directs"],
+        "s3_level": {"directs_needed": s3l["directs"], "active_directs": live["active_now"],
                      "reached_on": me["s3l_reached_on"], "first_payout": first_pay, "payouts": s3l["months"]},
     }})
 

@@ -3,6 +3,7 @@ from models import responses as R
 from common.mailSender import send_mail_or_fail, send_notice_mail
 from models.model import (AdminEmailModel, AdminEmailOtpModel, AdminMobileModel, AdminRemarkModel, AdminSetPasswordModel,
                           MemberStatusModel)
+from rankStats import count_directs_now
 from routes.matrix import super3_status_data
 from routes.users import team_page
 from routes.videoApis import day_no, missing_video_days
@@ -341,8 +342,11 @@ async def admin_member_super3(userCode: str, admin=Depends(tokenRequired(["ADMIN
 @dashboardApi.post("/admin/members/{userCode}/status", response_model=R.Envelope[R.NoData])
 async def admin_member_status(userCode: str, body: MemberStatusModel, admin=Depends(tokenRequired(["ADMIN"]))):
     async with cpo.transaction() as conn:
-        u = await cpo.fetch_one("SELECT id, status, activated_at, role FROM users WHERE user_code = $1 FOR UPDATE",
-                                userCode.strip().upper(), conn=conn)
+        if body.action == "unblock":
+            # Recounts the sponsor's directs below, in turn with activations: their lock first, as they take it.
+            await cpo.advisory_lock(conn, "super3")
+        u = await cpo.fetch_one("SELECT id, status, activated_at, role, sponsor_id FROM users WHERE user_code = $1 "
+                                "FOR UPDATE", userCode.strip().upper(), conn=conn)
         if not u or u["role"] != "USER":
             fail(404, "Member not found.")
         if body.action == "block":
@@ -355,6 +359,9 @@ async def admin_member_status(userCode: str, body: MemberStatusModel, admin=Depe
             new = "active" if u["activated_at"] else "inactive"
         await cpo.execute("UPDATE users SET status = $2, token_version = token_version + 1 WHERE id = $1",
                           u["id"], new, conn=conn)
+        if new == "active" and u["sponsor_id"]:
+            # Active again: counts for the sponsor at once, like an activation.
+            await count_directs_now(conn, [u["sponsor_id"]], await get_settings(conn))
         await audit(conn, admin["id"], f"member_{body.action}", userCode, {"remark": body.remark})
     await forget_auth_user(u["id"])
     return respond({"msg": f"Member {body.action}ed.", "status": 200})

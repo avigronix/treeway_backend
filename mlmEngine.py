@@ -12,6 +12,7 @@ from collections import deque
 from typing import Any, Dict, List, Optional, Tuple
 
 from base import cpo, fail, get_settings, level_amount, percent_of
+from rankStats import count_directs_now
 
 WALLETS = ("income", "fund", "product")
 
@@ -210,6 +211,10 @@ async def activate_user(conn, user_id: int, method: str, source_ref: str, by_use
 
     # 3. Super 3 share (₹300) by the sponsor's real deposited shares.
     await _super3_share(conn, user, s, meta)
+
+    # 4. The sponsor's active directs count at once: Distributor / Super 3 Level show now (Vinay 1 Nov).
+    if user["sponsor_id"]:
+        await count_directs_now(conn, [user["sponsor_id"]], s)
     return {"user_id": user_id, "user_code": user["user_code"]}
 
 

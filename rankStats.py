@@ -7,6 +7,9 @@
   up need the Distributor 5 active directs as well.
 - On the 1st of a month the night's result is also saved as last month's snapshot (royalty uses it).
 - Super 3 Level: the first night a member has 10 active directs sets users.s3l_reached_on (the day that ended).
+- Directs count at once (Vinay 1 Nov, bhaiya: "turant reflect hona chahiye"): every activation recounts the
+  sponsor's active directs (count_directs_now), so Distributor and Super 3 Level (reached today) show at once.
+  A rank only goes up there; the night count still decides team ranks, drops and the month-end snapshot.
 
 All members are loaded into memory once (5 lakh rows is fine). A sponsor always has a smaller id than
 the people they sponsor, so one pass from the highest id down adds every line into its sponsor.
@@ -89,6 +92,12 @@ async def run_rank_stats(run_day: Optional[date] = None, snapshot_only: bool = F
                              "next_counted", "computed_at"])
                 if not snapshot_only:
                     await _save_live(conn, s, run_day)
+                    # IDs activated after midnight (before this run) were counted at once; keep that.
+                    late = [r["sponsor_id"] for r in await cpo.fetch_all(
+                        "SELECT DISTINCT sponsor_id FROM users WHERE activated_at >= $1 AND sponsor_id IS NOT NULL",
+                        as_of, conn=conn)]
+                    if late:
+                        await count_directs_now(conn, late, s)
                 if run_day.day == 1:
                     await _snapshot(conn, (run_day - timedelta(days=1)).replace(day=1), as_of)
             ranked = sum(1 for v in stats.values() if v["rank"])
@@ -109,6 +118,31 @@ async def _save_live(conn, s: Dict, run_day: date):
         "UPDATE users u SET s3l_reached_on = $2 FROM rs WHERE rs.user_id = u.id "
         "AND rs.active_directs >= $1 AND u.s3l_reached_on IS NULL",
         s["s3_level"]["directs"], run_day - timedelta(days=1), conn=conn)
+
+
+async def count_directs_now(conn, sponsor_ids: List[int], s: Dict):
+    """These sponsors' active directs right now: Distributor (rank 1, only up) and Super 3 Level (reached today).
+    Called inside the activation (activations run one at a time). Team numbers stay from the night count; a new
+    row takes the last night's time, so the admin's "ranks last counted" stays true."""
+    need = s["ranks"]["need"][RANK_NAMES[0]]
+    await cpo.execute(
+        "INSERT INTO user_rank_stats AS r (user_id, active_directs, rank, next_counted, computed_at) "
+        "SELECT p.id, d.n, (d.n >= $2)::int, d.n, "
+        "       coalesce((SELECT computed_at FROM user_rank_stats ORDER BY user_id LIMIT 1), $3) "
+        "FROM unnest($1::bigint[]) AS p(id) CROSS JOIN LATERAL ("
+        "  SELECT count(*)::int AS n FROM users c WHERE c.sponsor_id = p.id AND c.role = 'USER' AND c.status = 'active'"
+        ") d "
+        "ON CONFLICT (user_id) DO UPDATE SET active_directs = EXCLUDED.active_directs, "
+        "rank = GREATEST(r.rank, EXCLUDED.rank), "
+        # rank 0: the next rank is Distributor, counted by directs; just became Distributor: Silver is a team
+        # number, known after the night count
+        "next_counted = CASE WHEN GREATEST(r.rank, EXCLUDED.rank) = 0 THEN EXCLUDED.active_directs "
+        "                    WHEN r.rank = 0 THEN 0 ELSE r.next_counted END",
+        sponsor_ids, need, datetime.combine(today_ist(), datetime.min.time(), IST), conn=conn)
+    await cpo.execute(
+        "UPDATE users u SET s3l_reached_on = $3 FROM user_rank_stats r "
+        "WHERE r.user_id = u.id AND u.id = ANY($1::bigint[]) AND r.active_directs >= $2 AND u.s3l_reached_on IS NULL",
+        sponsor_ids, s["s3_level"]["directs"], today_ist(), conn=conn)
 
 
 async def _snapshot(conn, month: date, as_of: datetime):
