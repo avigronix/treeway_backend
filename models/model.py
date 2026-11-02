@@ -662,3 +662,51 @@ class ContactModel(Clean):
 
 class ContactRepliedModel(Clean):
     note: Optional[str] = Field(None, max_length=300)
+
+
+# ================================================================ cash book
+def cb_mobile(v) -> Optional[str]:
+    """Any way a mobile is typed (+91 98765 43210, 09876543210, 9876543210) -> its 10 digits; None if invalid.
+    Used on write AND on lookup, so a stored member number always matches the logged-in user's mobile."""
+    digits = re.sub(r"[^0-9]", "", str(v or ""))
+    if len(digits) == 11 and digits[0] == "0" or len(digits) == 12 and digits[:2] == "91" \
+            or len(digits) == 13 and digits[:3] == "091":
+        digits = digits[-10:]
+    return digits if MOBILE_RE.match(digits) else None
+
+
+class CashBookNameModel(Clean):
+    name: str = Field(min_length=1, max_length=100)
+
+
+class CashBookEntryModel(Clean):
+    type: Literal["in", "out"]
+    amount: float = Field(gt=0, le=1_000_000_000, description="Rupees, at most 2 decimals (max ₹100 crore)")
+    entry_date: datetime = Field(description="Date + time of the entry; without a time zone it is IST")
+    remark: Optional[str] = Field(None, max_length=300)
+
+    @field_validator("entry_date")
+    @classmethod
+    def _ist(cls, v):
+        if v.tzinfo is None:
+            v = v.replace(tzinfo=timezone(timedelta(hours=5, minutes=30)))
+        if not 2000 <= v.year <= 2100:
+            raise ValueError("Enter a valid date.")
+        return v
+
+    @field_validator("remark")
+    @classmethod
+    def _empty(cls, v):
+        return v or None
+
+
+class CashBookMemberModel(Clean):
+    mobile: str = Field(max_length=20)
+
+    @field_validator("mobile")
+    @classmethod
+    def _mobile(cls, v):
+        m = cb_mobile(v)
+        if not m:
+            raise ValueError("Enter a valid 10 digit mobile number.")
+        return m

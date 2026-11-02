@@ -12,6 +12,7 @@ from base import *
 from models import responses as R
 from config.pg_operation import BadCursor
 from routes.adminApis import adminApi
+from routes.cashbookApis import cashbookApi
 from routes.companyApis import cmpApi
 from routes.contentApis import contentApi
 from routes.doctorApis import doctorApi
@@ -41,7 +42,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Treeway API", lifespan=lifespan, docs_url="/docs" if DEV_MODE else None, redoc_url=None)
 
-for router in (userApi, walletApi, pinApi, matrixApi, complaintApi, dashboardApi, cmpApi, adminApi, reverseApi, videoApi, rankApi, shopApi, doctorApi, reportApi, contentApi, gullakApi):
+for router in (userApi, walletApi, pinApi, matrixApi, complaintApi, dashboardApi, cmpApi, adminApi, reverseApi, videoApi, rankApi, shopApi, doctorApi, reportApi, contentApi, gullakApi, cashbookApi):
     app.include_router(router, prefix="/api/v1")
 if DEV_MODE:
     # Test helpers (OTP reader). In production these routes do not exist at all: 404.

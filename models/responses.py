@@ -1769,3 +1769,81 @@ class AdminGullak(Out):
     interest_paid: float
     charges: float
     interest_if_all_withdrawn_today: float
+
+
+# ================================================================ cash book
+# A member's own cash notebook (not Treeway money). Amounts are rupees; totals are summed in SQL.
+class CashBookBusiness(Out):
+    id: int
+    name: str
+    book_count: int
+    total_in: float
+    total_out: float
+    balance: float = Field(description="total_in - total_out of all its books")
+    updated_at: datetime
+
+
+class CashBookSharedBook(Out):
+    """A book someone else added this user's mobile to: view only."""
+    id: int
+    name: str
+    business_name: str
+    owner_mobile: str
+    total_in: float
+    total_out: float
+    balance: float
+    updated_at: datetime
+
+
+class CashBookHome(Out):
+    businesses: List[CashBookBusiness]
+    shared: List[CashBookSharedBook]
+
+
+class CashBookBook(Out):
+    id: int
+    name: str
+    total_in: float
+    total_out: float
+    balance: float
+    created_at: datetime
+    updated_at: datetime
+
+
+class CashBookBusinessBooks(Out):
+    business: CashBookBusiness
+    books: List[CashBookBook]
+
+
+class CashBookMember(Out):
+    mobile: str
+    added_at: datetime
+    joined: bool = Field(description="A Treeway account with this mobile exists (display only; never blocks access)")
+
+
+class CashBookBookDetail(Out):
+    id: int
+    name: str
+    business_id: int
+    business_name: str
+    owner_mobile: str
+    is_owner: bool
+    total_in: float
+    total_out: float
+    balance: float
+    updated_at: datetime
+    members: List[CashBookMember] = Field(description="Only for the owner; empty for a view-only member")
+
+
+class CashBookEntry(Out):
+    id: int
+    type: Literal["in", "out"]
+    amount: float
+    entry_date: datetime
+    remark: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+
+class CashBookEntriesPage(Page[CashBookEntry]):
+    pass
