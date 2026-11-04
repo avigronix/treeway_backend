@@ -8,7 +8,11 @@ Rules (SRS 4.1 + Vinay, 14 Oct 2026; video count per day: Vinay, 31 Oct):
   Wallet in the same request, once per day (ref yfi:{user}:{date}), no 10% cut. The count used for the ₹20 is
   read from the database in that request, never from the 30-second cache.
 - A day without videos has none: no lock, no ₹20 (no fallback to another day's links any more).
-- Only active IDs, from the activation date (Day 1) to Day 150 (video.days). A missed day is lost.
+- Active IDs from the activation date (Day 1) to Day 150 (video.days). A missed day is lost.
+- Inactive IDs too (Vinay, 3 Nov: the Cash Book brings free members, the ₹20 pulls them to activate): every day
+  from the sign-up date while inactive, no day limit, the same ₹20 in the Product Wallet (only the Shop uses it,
+  and the Shop needs an active ID) and the same login lock. These days have no day number and do not count:
+  activation starts Day 1 of 150 fresh. Activating on a day already watched does not pay that day again.
 - The day is the IST date. A video started before midnight must be started again after midnight.
 - Start time (Vinay, 22 Oct): each day's videos go live at the admin's IST start time (default 12:00 AM).
   Before it the app is open (no lock, no ₹20 yet); from it the lock comes. A live day's time can move earlier,
@@ -80,15 +84,21 @@ async def _member_day(user_id: int) -> Dict:
     """Everything needed to decide what the member can do today."""
     s = (await get_settings())["video"]
     today = today_ist()
-    u = await cpo.fetch_one("SELECT status, role, activated_at FROM users WHERE id = $1", user_id)
+    u = await cpo.fetch_one("SELECT status, role, activated_at, created_at FROM users WHERE id = $1", user_id)
     n = day_no(u["activated_at"], today)
+    free = u["role"] == "USER" and u["status"] == "inactive" and u["activated_at"] is None
+    first_at = u["created_at"] if free else u["activated_at"]
     videos = await day_videos(today, s["per_day"])
     starts = await live_from(today)
     waiting = starts is not None and now_utc() < starts
     return {
         "s": s, "today": today, "day_no": n, "videos": [] if waiting else videos,
         "ready": bool(videos) and not waiting, "starts_at": starts if waiting else None,
-        "eligible": u["role"] == "USER" and u["status"] == "active" and n is not None and 1 <= n <= s["days"],
+        "free": free,
+        # The first day that counts: activation (Day 1), or sign-up for an inactive ID.
+        "since": first_at.astimezone(IST).date() if first_at else None,
+        "eligible": free or (u["role"] == "USER" and u["status"] == "active"
+                             and n is not None and 1 <= n <= s["days"]),
     }
 
 
@@ -113,9 +123,11 @@ async def videos_today(user=Depends(tokenRequired())):
         "SELECT done_slots, current_slot, current_started, rewarded_at, "
         "extract(epoch FROM now() - current_started) AS elapsed FROM video_days WHERE user_id = $1 AND watch_date = $2",
         user["id"], md["today"]) or {"done_slots": 0, "current_slot": None, "rewarded_at": None, "elapsed": None}
+    # Active: only the 150 days since activation (the inactive days before it do not count). Inactive: all so far.
     earned = await cpo.fetch_one(
-        "SELECT count(*) AS days, coalesce(sum(amount), 0) AS total FROM wallet_ledger WHERE user_id = $1 AND type = 'yfi_daily'",
-        user["id"])
+        "SELECT count(*) AS days, coalesce(sum(amount), 0) AS total FROM wallet_ledger WHERE user_id = $1 "
+        "AND type = 'yfi_daily' AND (meta->>'date')::date >= $2",
+        user["id"], md["since"] or md["today"])
 
     videos = []
     if md["eligible"]:
@@ -140,7 +152,7 @@ async def videos_today(user=Depends(tokenRequired())):
 
 
 @videoApi.post("/videos/{slot}/start", response_model=R.Envelope[R.VideoStarted])
-async def start_video(slot: int, user=Depends(tokenRequired(activeOnly=True))):
+async def start_video(slot: int, user=Depends(tokenRequired())):
     """Starts (or restarts) the timer of the next video."""
     md = await _member_day(user["id"])
     await _check_can_watch(md)
@@ -170,7 +182,7 @@ async def start_video(slot: int, user=Depends(tokenRequired(activeOnly=True))):
 
 
 @videoApi.post("/videos/{slot}/complete", response_model=R.Envelope[R.VideoDone])
-async def complete_video(slot: int, user=Depends(tokenRequired(activeOnly=True))):
+async def complete_video(slot: int, user=Depends(tokenRequired())):
     """Marks the running video as watched if 30 seconds passed (server time). The last one pays ₹20 right away."""
     md = await _member_day(user["id"])
     await _check_can_watch(md)
@@ -209,9 +221,10 @@ async def complete_video(slot: int, user=Depends(tokenRequired(activeOnly=True))
 async def videos_history(days: int = Query(14, ge=1, le=150), user=Depends(tokenRequired())):
     """'Last 14 days: 12 done, 2 missed' (only days since activation). A day without videos is `off`, not missed."""
     md = await _member_day(user["id"])
-    if md["day_no"] is None:
+    if md["since"] is None:
         return respond({"msg": "", "status": 200, "data": {"days": [], "done": 0, "missed": 0}})
-    first = md["today"] - timedelta(days=min(days, md["day_no"], md["s"]["days"]) - 1)
+    span = (md["today"] - md["since"]).days + 1 if md["free"] else min(md["day_no"], md["s"]["days"])
+    first = md["today"] - timedelta(days=min(days, span) - 1)
     done = {r["d"] for r in await cpo.fetch_all(
         "SELECT (meta->>'date')::date AS d FROM wallet_ledger WHERE user_id = $1 AND type = 'yfi_daily' "
         "AND created_at >= $2", user["id"], datetime.combine(first, datetime.min.time(), IST))}

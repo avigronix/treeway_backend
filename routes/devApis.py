@@ -47,8 +47,8 @@ async def watch_videos(body: DevCodeModel):
         fail(404, "Member not found.")
     if user["role"] != "USER":
         fail(400, "Only a member watches the daily videos.")
-    if user["status"] != "active":
-        fail(403, "Activate your ID first.", "Inactive")
+    if user["status"] in ("blocked", "removed"):   # an inactive ID watches too (Vinay 3 Nov)
+        fail(403, "This ID is blocked.", "Blocked")
     s = (await get_settings())["video"]
     done = await cpo.fetch_one("SELECT done_slots, rewarded_at FROM video_days WHERE user_id = $1 AND watch_date = $2",
                                user["id"], today_ist())
