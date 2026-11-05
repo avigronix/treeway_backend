@@ -8,7 +8,7 @@ from models.model import IFSC_RE, SettingModel
 cmpApi = APIRouter()
 
 # Vinay, 14 Oct 2026. Changes apply only to new income; nothing already paid changes.
-EDITABLE_SETTINGS = {"level_income", "cut_percent", "min_withdraw", "p2p", "video", "shop", "inactive_remove_days",
+EDITABLE_SETTINGS = {"level_income", "cut_percent", "min_withdraw", "p2p", "video", "shop",
                      "product_cost_percent", "super3", "activation_amount", "product_wallet_on_activation",
                      "two_admin_threshold", "ranks", "shop_sales_in_profit", "gullak"}
 # Locked once the first member is activated (PIN price, turnover and the ₹987 split depend on them).
@@ -34,7 +34,7 @@ async def public_config():
     return respond({"msg": "", "status": 200, "data": {
         "activation_amount": rupees(s["activation_amount"]), "pin_price": rupees(s["activation_amount"]),
         "product_wallet_on_activation": rupees(s["product_wallet_on_activation"]),
-        "min_withdraw": rupees(s["min_withdraw"]), "inactive_remove_days": s["inactive_remove_days"],
+        "min_withdraw": rupees(s["min_withdraw"]),
         "cut_percent": s["cut_percent"],
         "p2p": {"fee_percent": p2p["fee_percent"], "min": rupees(p2p["min"]), "max": rupees(p2p["max"]),
                 "daily_max": rupees(p2p["daily_max"]), "max_level": P2P_MAX_LEVEL},

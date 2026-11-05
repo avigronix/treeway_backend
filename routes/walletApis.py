@@ -58,17 +58,22 @@ async def wallet_history(wallet: Optional[str] = Query(None, pattern="^(income|f
 
 @walletApi.get("/wallet/income-summary", response_model=R.Envelope[R.IncomeSummary])
 async def income_summary(period: str = Query("month", pattern="^(today|week|month|all)$"), user=Depends(tokenRequired())):
-    """'My income' screen: per income type for today / this week (from Monday) / this month, all after the cut."""
+    """'My income' screen: per income type for today / this week (from Monday) / this month, all after the cut.
+    `yfi_daily` (the daily video ₹20, Product Wallet, no cut) is shown with the 8 income types of the plan
+    (Vinay, 4 Nov), but it is not in `total`: the total is the Income Wallet's income."""
+    types = (*INCOME_TYPES, "yfi_daily")
     rows = await cpo.fetch_all(
         "SELECT type, count(*) AS count, sum(amount) AS net, sum(gross) AS gross, sum(tds) AS tds, "
         "sum(service) AS service, sum(single_leg) AS single_leg, sum(other_cut) AS other_cut "
         "FROM wallet_ledger WHERE user_id = $1 AND type = ANY($2::text[]) AND created_at >= $3 GROUP BY type",
-        user["id"], list(INCOME_TYPES), period_start(period))
-    by_type = {t: {"count": 0, "net": 0.0, "gross": 0.0, "tds": 0.0} for t in INCOME_TYPES}
+        user["id"], list(types), period_start(period))
+    by_type = {t: {"count": 0, "net": 0.0, "gross": 0.0, "tds": 0.0} for t in types}
     total = {"count": 0, "net": 0, "gross": 0, "tds": 0, "service": 0, "single_leg": 0, "other_cut": 0}
     for r in rows:
-        by_type[r["type"]] = {"count": r["count"], "net": rupees(r["net"]), "gross": rupees(r["gross"]),
+        by_type[r["type"]] = {"count": r["count"], "net": rupees(r["net"]), "gross": rupees(r["gross"] or r["net"]),
                               "tds": rupees(r["tds"])}
+        if r["type"] == "yfi_daily":
+            continue
         for k in total:
             total[k] += r[k]
     return respond({"msg": "", "status": 200, "data": {

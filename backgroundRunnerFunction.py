@@ -5,26 +5,8 @@ from base import *
 VIDEO_LOG_KEEP_DAYS = 60
 
 
-async def remove_inactive_ids():
-    """Inactive IDs older than N days (admin setting) are removed, so their mobile is free again.
-    An ID with an activation request still waiting is never removed (the person already paid)."""
-    days = int((await get_settings())["inactive_remove_days"])
-    async with cpo.transaction() as conn:
-        if not await conn.fetchval("SELECT pg_try_advisory_xact_lock(hashtext('job:remove_inactive'))"):
-            return
-        rows = await cpo.fetch_all(
-            """
-            UPDATE users u SET status = 'removed', token_version = token_version + 1
-            WHERE u.status = 'inactive' AND u.role = 'USER'
-              AND u.created_at < now() - make_interval(days => $1)
-              AND NOT EXISTS (SELECT 1 FROM payment_requests p WHERE p.user_id = u.id AND p.status = 'pending')
-              AND NOT EXISTS (SELECT 1 FROM user_uplines d WHERE d.ancestor_id = u.id)
-            RETURNING u.id
-            """, days, conn=conn)
-    for r in rows:
-        await forget_auth_user(r["id"])
-    if rows:
-        logger.info("removed %s inactive IDs", len(rows))
+# Inactive IDs are never removed any more (Vinay, 4 Nov): the 30-day "remove inactive IDs" job is gone. An ID
+# removed before that stays removed.
 
 
 async def clean_video_logs():

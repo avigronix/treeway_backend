@@ -217,7 +217,6 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "pay_day": 3,
     },
     "s3_level": {"directs": 10, "months": 6},
-    "inactive_remove_days": 30,
     # 2-admin approval: an action of this amount (paise) or more waits for a second admin. 0 = OFF.
     # OFF by default: any one admin approves any amount (bhaiya, 15 Oct 2026). The code stays, switched off.
     "two_admin_threshold": 0,
@@ -249,6 +248,8 @@ async def get_settings(conn=None) -> Dict[str, Any]:
     rows = await cpo.fetch_all("SELECT key, value FROM app_settings", conn=conn)
     merged = dict(DEFAULT_SETTINGS)
     for r in rows:
+        if r["key"] not in DEFAULT_SETTINGS:
+            continue   # a retired setting (inactive_remove_days, Vinay 4 Nov): the row stays, nothing reads it
         default = DEFAULT_SETTINGS.get(r["key"])
         # Fields added to a settings group later are filled from the defaults (old databases do not have them).
         merged[r["key"]] = {**default, **r["value"]} if isinstance(default, dict) and isinstance(r["value"], dict) \

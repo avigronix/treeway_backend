@@ -128,11 +128,11 @@ async def run(slow_ms: float, out_path: Path):
 
     from rankStats import run_rank_stats
     from singleLeg import run_single_leg
-    from backgroundRunnerFunction import cancel_unpaid_courier_orders, clean_video_logs, remove_inactive_ids
+    from backgroundRunnerFunction import cancel_unpaid_courier_orders, clean_video_logs
     lines += ["", "## Night jobs", "", "| Job | seconds |", "|---|---|"]
     for name, job in (("rank stats (all members)", lambda: run_rank_stats(today_ist())),
                       ("single leg (no new rows)", lambda: run_single_leg(today_ist())),
-                      ("remove inactive IDs", remove_inactive_ids), ("clean video logs", clean_video_logs),
+                      ("clean video logs", clean_video_logs),
                       ("cancel unpaid courier orders", cancel_unpaid_courier_orders)):
         s = time.perf_counter()
         await job()

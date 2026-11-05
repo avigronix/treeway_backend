@@ -110,7 +110,6 @@ class Me(PublicUser):
     bank_branch: Optional[str]
     bank_updated_at: Optional[datetime]
     referral_link: Optional[str] = Field(description="Only for active IDs")
-    remove_on: Optional[date] = Field(description="Inactive IDs: removed after this date if not activated")
 
 
 class MobileCheck(Out):
@@ -960,7 +959,6 @@ class PublicConfig(Out):
     pin_price: float
     product_wallet_on_activation: float
     min_withdraw: float
-    inactive_remove_days: int
     cut_percent: Dict[str, float]
     p2p: PublicP2P
     video: PublicVideo

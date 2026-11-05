@@ -15,7 +15,7 @@ from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_MISSED  # noqa: E402
 from apscheduler.schedulers.asyncio import AsyncIOScheduler  # noqa: E402
 from apscheduler.triggers.cron import CronTrigger  # noqa: E402
 
-from backgroundRunnerFunction import cancel_unpaid_courier_orders, clean_video_logs, remove_inactive_ids  # noqa: E402
+from backgroundRunnerFunction import cancel_unpaid_courier_orders, clean_video_logs  # noqa: E402
 from base import IST, cpo, redis_client  # noqa: E402
 from monthlyPayouts import pay_due_months  # noqa: E402
 from rankStats import RUN_AT, run_rank_stats  # noqa: E402
@@ -51,8 +51,6 @@ def on_job_event(event):
 async def main():
     await initialize_database()
     scheduler = AsyncIOScheduler(timezone=IST)
-    scheduler.add_job(remove_inactive_ids, CronTrigger(hour=2, minute=30, timezone=IST), id="remove_inactive_ids",
-                      replace_existing=True, max_instances=1, coalesce=True)
     scheduler.add_job(clean_video_logs, CronTrigger(hour=3, minute=15, timezone=IST), id="clean_video_logs",
                       replace_existing=True, max_instances=1, coalesce=True)
     scheduler.add_job(cancel_unpaid_courier_orders, CronTrigger(hour=3, minute=45, timezone=IST), id="courier_orders",

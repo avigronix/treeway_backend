@@ -281,12 +281,7 @@ async def me(user=Depends(tokenRequired(allowDoctor=True, beforeNewPassword=True
         "pan": row["pan"], "bank_holder": row["bank_holder"], "bank_account": mask_account(row["bank_account"]),
         "bank_ifsc": row["bank_ifsc"], "bank_branch": row["bank_branch"], "bank_updated_at": row["bank_updated_at"],
         "referral_link": f"{os.environ.get('FRONTEND_URL', '')}/join/{row['user_code']}" if row["status"] == "active" else None,
-        "remove_on": None,
     })
-    if row["status"] == "inactive" and row["role"] == "USER":
-        # "Activate within 30 days, or this ID will be removed" (the night job runs after this date).
-        days = int((await get_settings())["inactive_remove_days"])
-        data["remove_on"] = (row["created_at"].astimezone(IST) + timedelta(days=days)).date()
     return respond({"msg": "", "status": 200, "data": data})
 
 
