@@ -366,18 +366,30 @@ async def _p2p_target(user: Dict, to_code: str) -> Dict:
         fail(404, "Member not found or not active.")
     if to["id"] == user["id"]:
         fail(400, "You cannot send to yourself.")
-    # My downline levels 1..5, or my own sponsor (Vinay 29 Oct; replaces "whole downline" of 16 Oct).
-    if to["id"] != user["sponsor_id"]:
-        level = await downline_level(user["id"], to["id"])
-        if level is None:
-            fail(403, "You can send only to your team or your sponsor.")
-        if level > P2P_MAX_LEVEL:
-            fail(403, f"You can send only to your team up to level {P2P_MAX_LEVEL} or your sponsor. This member is at level {level}.")
-    return to
+    # My upline up to `up_levels` (sponsor = 1) or my team up to `down_levels` (Vinay 6 Nov, admin setting).
+    p2p = (await get_settings())["p2p"]
+    rule = f"You can send only to your upline up to {p2p['up_levels']} levels or your team up to {p2p['down_levels']} levels."
+    down = await downline_level(user["id"], to["id"])
+    if down is not None:
+        if down > p2p["down_levels"]:
+            fail(403, f"{rule} This member is at level {down} of your team.")
+        return to
+    up = await downline_level(to["id"], user["id"])
+    if up is not None:
+        if up > p2p["up_levels"]:
+            fail(403, f"{rule} This member is {up} levels above you.")
+        return to
+    fail(403, f"{rule} This member is not in your upline or your team.")
+
+
+async def _p2p_on():
+    if not (await get_settings())["p2p"]["enabled"]:
+        fail(403, "P2P transfer is off right now.", "P2POff")
 
 
 @walletApi.post("/wallet/p2p/otp", response_model=R.Envelope[R.MaskedEmail])
 async def p2p_otp(user=Depends(tokenRequired(activeOnly=True))):
+    await _p2p_on()
     u = await cpo.fetch_one("SELECT id, full_name, email FROM users WHERE id = $1", user["id"])
     await issue_otp("p2p", u, u["email"])
     return respond({"msg": "OTP sent to your email.", "status": 200, "data": {"email": mask_email(u["email"])}})
@@ -397,11 +409,13 @@ async def p2p_limits(user=Depends(tokenRequired(activeOnly=True))):
     return respond({"msg": "", "status": 200, "data": {
         "fee_percent": p2p["fee_percent"], "min": rupees(p2p["min"]), "max": rupees(p2p["max"]),
         "daily_max": rupees(p2p["daily_max"]), "sent_today": rupees(sent),
-        "left_today": rupees(max(0, p2p["daily_max"] - sent))}})
+        "left_today": rupees(max(0, p2p["daily_max"] - sent)), "enabled": p2p["enabled"],
+        "up_levels": p2p["up_levels"], "down_levels": p2p["down_levels"]}})
 
 
 @walletApi.post("/wallet/p2p", response_model=R.Envelope[R.P2PSent])
 async def p2p_send(body: P2PModel, user=Depends(tokenRequired(activeOnly=True))):
+    await _p2p_on()
     p2p = (await get_settings())["p2p"]
     amount = to_paise(body.amount)
     if amount < p2p["min"] or amount > p2p["max"]:

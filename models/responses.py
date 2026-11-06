@@ -151,6 +151,7 @@ class MemberLookup(Out):
     status: str
     created_at: datetime
     my_level: Optional[int] = Field(description="Level in my team, null if not in my team")
+    my_upline_level: Optional[int] = Field(description="Levels above me in my upline (sponsor = 1), null if not")
     is_my_sponsor: bool
 
 
@@ -304,6 +305,9 @@ class P2PLimits(Out):
     daily_max: float
     sent_today: float
     left_today: float
+    enabled: bool
+    up_levels: int
+    down_levels: int
 
 
 class P2PSent(Out):
@@ -933,6 +937,8 @@ class CompanyDetail(Out):
     email: str
     phone: str
     whatsapp_group: str
+    address: str
+    gstin: str
 
 
 class PublicP2P(Out):
@@ -940,7 +946,9 @@ class PublicP2P(Out):
     min: float
     max: float
     daily_max: float
-    max_level: int
+    enabled: bool
+    up_levels: int
+    down_levels: int
 
 
 class PublicVideo(Out):
@@ -1315,6 +1323,7 @@ class OrderItem(Out):
 class Order(Out):
     id: int
     order_no: str
+    invoice_no: str
     status: Literal["placed", "packed", "shipped", "delivered", "cancelled"]
     items_total: float
     paid: WalletSplit
@@ -1336,6 +1345,50 @@ class Order(Out):
     cancelled_at: Optional[datetime]
     prescription_id: Optional[int]
     items: List[OrderItem]
+
+
+class InvoiceSeller(Out):
+    name: str
+    address: str
+    phone: str
+    email: str
+    gstin: str
+
+
+class InvoiceBuyer(Out):
+    name: str
+    user_code: str
+    mobile: str
+    address: str
+    pincode: str
+
+
+class InvoiceLine(Out):
+    name: str
+    qty: int
+    mrp: float
+    amount: float
+
+
+class Invoice(Out):
+    """A shop order's invoice (non-GST, Vinay 6 Nov). Every amount is from the server."""
+    invoice_no: str
+    invoice_date: datetime
+    order_no: str
+    status: Literal["placed", "packed", "shipped", "delivered", "cancelled"]
+    seller: InvoiceSeller
+    buyer: InvoiceBuyer
+    items: List[InvoiceLine]
+    items_total: float
+    courier_charge: float
+    total: float
+    paid: WalletSplit
+    courier_utr: str
+    courier_status: Literal["pending", "approved", "rejected"]
+    cancelled_at: Optional[datetime]
+    cancel_reason: Optional[str]
+    courier_refund_due: bool
+    courier_refunded_at: Optional[datetime]
 
 
 class AdminOrder(Order):

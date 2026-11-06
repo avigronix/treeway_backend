@@ -142,7 +142,6 @@ def period_start(period: str) -> datetime:
 
 # Income credited to the Income Wallet after the 10% cut.
 INCOME_TYPES = ("level_income", "direct_bonus", "super3_income", "single_leg", "royalty", "s3_level")
-P2P_MAX_LEVEL = 5   # P2P goes to my downline levels 1..5 or my own sponsor (Vinay 29 Oct; was any depth)
 RANK_NAMES = ("Distributor", "Silver", "Gold", "Platinum", "Emerald", "Diamond")   # rank 1..6
 # Wallet history filter groups (Wallet screen).
 HISTORY_GROUPS = {
@@ -198,7 +197,10 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "level_income": {"1": 10000, "2": 5000, "3": 2500, "4-10": 1000, "11-15": 500, "16-25": 300},
     "cut_percent": {"tds": 2, "service": 3, "single_leg": 5},
     "min_withdraw": 20000,
-    "p2p": {"fee_percent": 3, "min": 10000, "max": 300000, "daily_max": 300000},
+    # P2P (Vinay 6 Nov, admin setting): on / off, to my upline up to `up_levels` (sponsor = 1) or my team up to
+    # `down_levels` (was: team 1..5 or the sponsor). Nobody else (another line of the sponsor's team).
+    "p2p": {"fee_percent": 3, "min": 10000, "max": 300000, "daily_max": 300000,
+            "enabled": True, "up_levels": 5, "down_levels": 10},
     "super3": {
         "boards": 8,
         "share_per_join": 30000,     # ₹300 of every ₹987
@@ -233,6 +235,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "company": {
         "name": "Treeway", "upi_id": "", "account_holder": "", "account_no": "", "ifsc": "",
         "branch": "", "qr_path": "", "email": "", "phone": "", "whatsapp_group": "",
+        "address": "", "gstin": "",   # printed on every invoice (Vinay 6 Nov); GSTIN optional (not registered yet)
     },
 }
 

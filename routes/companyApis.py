@@ -16,7 +16,7 @@ LOCKED_AFTER_LAUNCH = {"activation_amount", "product_wallet_on_activation"}
 # Inside "super3" only these may change once a member is on a board; the board structure is locked.
 SUPER3_FREE_FIELDS = {"direct_bonus", "self_help"}
 PUBLIC_COMPANY_KEYS = ("name", "upi_id", "account_holder", "account_no", "ifsc", "branch", "qr_path",
-                       "email", "phone", "whatsapp_group")
+                       "email", "phone", "whatsapp_group", "address", "gstin")
 
 
 @cmpApi.get("/company/detail", response_model=R.Envelope[R.CompanyDetail])
@@ -37,7 +37,8 @@ async def public_config():
         "min_withdraw": rupees(s["min_withdraw"]),
         "cut_percent": s["cut_percent"],
         "p2p": {"fee_percent": p2p["fee_percent"], "min": rupees(p2p["min"]), "max": rupees(p2p["max"]),
-                "daily_max": rupees(p2p["daily_max"]), "max_level": P2P_MAX_LEVEL},
+                "daily_max": rupees(p2p["daily_max"]), "enabled": p2p["enabled"], "up_levels": p2p["up_levels"],
+                "down_levels": p2p["down_levels"]},
         "video": {"reward": rupees(video["reward"]), "days": video["days"], "per_day": video["per_day"],
                   "seconds": video["seconds"]},
         "shop": {"order_max": rupees(s["shop"]["order_max"])},
@@ -46,6 +47,7 @@ async def public_config():
     }})
 
 
+GSTIN_RE = re.compile(r"^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")
 UPI_RE = re.compile(r"^[A-Za-z0-9.\-_]{2,64}@[A-Za-z][A-Za-z0-9]{1,30}$")
 ACCOUNT_RE = re.compile(r"^\d{9,18}$")
 EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]+\.[A-Za-z]{2,}$")
@@ -60,7 +62,8 @@ def _check_company(c: Dict[str, str]):
              ("ifsc", IFSC_RE, "Enter a valid IFSC code (example: SBIN0001234)."),
              ("email", EMAIL_RE, "Enter a valid email."),
              ("phone", re.compile(r"^[6-9]\d{9}$"), "Phone must be a 10-digit mobile number."),
-             ("whatsapp_group", WHATSAPP_RE, "Use the WhatsApp group link (https://chat.whatsapp.com/...).")]
+             ("whatsapp_group", WHATSAPP_RE, "Use the WhatsApp group link (https://chat.whatsapp.com/...)."),
+             ("gstin", GSTIN_RE, "GSTIN has 15 letters and digits (like 09ABCDE1234F1Z5).")]
     for key, rx, msg in rules:
         if c.get(key) and not rx.match(c[key]):
             fail(400, msg)
@@ -81,7 +84,7 @@ async def update_company(request: Request, admin=Depends(tokenRequired(["ADMIN"]
         for k in PUBLIC_COMPANY_KEYS:
             if k != "qr_path" and k in form:
                 v = " ".join(str(form[k]).split())[:200]   # one line, no extra spaces
-                company[k] = v.upper() if k == "ifsc" else v.lower() if k in ("upi_id", "email") else v
+                company[k] = v.upper() if k in ("ifsc", "gstin") else v.lower() if k in ("upi_id", "email") else v
         if str(form.get("qr_remove", "")) == "1":
             company["qr_path"] = ""
         _check_company(company)   # before the file is written: a wrong form leaves no stray picture
@@ -163,6 +166,10 @@ def _check_rules(key: str, value: Any):
         fail(400, "Direct bonus + Self Help Fund must equal the Super 3 share of each join.")
     if key == "p2p" and not value["min"] <= value["max"] <= value["daily_max"]:
         fail(400, "P2P: minimum ≤ maximum ≤ daily maximum.")
+    if key == "p2p" and not (value["up_levels"] <= 25 and value["down_levels"] <= 100):
+        fail(400, "P2P: upline levels 0 to 25, team levels 0 to 100.")
+    if key == "p2p" and value["enabled"] and value["up_levels"] + value["down_levels"] == 0:
+        fail(400, "P2P: allow at least 1 upline or team level, or turn P2P off.")
     if key == "video" and (value["per_day"] < 1 or value["days"] < 1):
         fail(400, "Videos: at least 1 video a day and 1 day.")
     if key == "gullak" and not 1 <= value["min_months"] <= 60:

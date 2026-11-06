@@ -419,6 +419,7 @@ async def member_lookup(userCode: str, user=Depends(tokenRequired())):
     if not row:
         fail(404, "Member not found.")
     row["my_level"] = await downline_level(user["id"], row["id"])   # any depth (bhaiya, 16 Oct)
+    row["my_upline_level"] = await downline_level(row["id"], user["id"])   # I am this many levels below them
     row["is_my_sponsor"] = row["id"] == user["sponsor_id"]
     row.pop("id")
     return respond({"msg": "", "status": 200, "data": row})

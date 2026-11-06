@@ -180,9 +180,10 @@ async def place_order(request: Request, user=Depends(tokenRequired(activeOnly=Tr
 
             quote = await courier_quote(data["pincode"], conn)
             order_no = "TW-ORD-" + str(await cpo.fetch_val("SELECT nextval('order_no_seq')", conn=conn))
+            invoice_no = await next_invoice_no(conn)
             address = {k: data[k] for k in ("name", "mobile", "address", "pincode")}
             order_id = await cpo.insertion("orders", {
-                "order_no": order_no, "user_id": user["id"], "items_total": total, "paid_product": paid["product"],
+                "order_no": order_no, "invoice_no": invoice_no, "user_id": user["id"], "items_total": total, "paid_product": paid["product"],
                 "paid_fund": paid["fund"], "paid_income": paid["income"], "courier_charge": quote["rate"],
                 "courier_state": quote["state"], "courier_utr": data["courier_utr"], "courier_receipt": receipt,
                 "address": address, "prescription_id": data.get("prescription_id")}, conn=conn)
@@ -203,13 +204,51 @@ async def place_order(request: Request, user=Depends(tokenRequired(activeOnly=Tr
                              "paid": {w: rupees(v) for w, v in paid.items()}, "courier_charge": rupees(quote["rate"])}})
 
 
+def financial_year(d: date) -> str:
+    """India's financial year (April to March) of a date: 2026-27."""
+    start = d.year if d.month >= 4 else d.year - 1
+    return f"{start}-{(start + 1) % 100:02d}"
+
+
+async def next_invoice_no(conn) -> str:
+    """The next invoice number of this financial year (TW/INV/2026-27/000001), inside the order's transaction:
+    the counter row is locked until it commits, so two orders never get the same number, and a failed order
+    gives its number back (no gaps)."""
+    fy = financial_year(today_ist())
+    n = await cpo.fetch_val(
+        "INSERT INTO invoice_counters (fy, last_no) VALUES ($1, 1) "
+        "ON CONFLICT (fy) DO UPDATE SET last_no = invoice_counters.last_no + 1 RETURNING last_no", fy, conn=conn)
+    return f"TW/INV/{fy}/{n:06d}"
+
+
+async def _invoice(o: Dict) -> Dict:
+    """The invoice of an order (non-GST, Vinay 6 Nov). Seller = the company details the admin keeps."""
+    company = (await get_settings())["company"]
+    items = await _order_rows("order_id = $1", o["id"])
+    a = o["address"]
+    return {
+        "invoice_no": o["invoice_no"], "invoice_date": o["created_at"], "order_no": o["order_no"], "status": o["status"],
+        "seller": {k: company.get(k, "") or "" for k in ("name", "address", "phone", "email", "gstin")},
+        "buyer": {"name": a.get("name", ""), "user_code": o["user_code"], "mobile": a.get("mobile", ""),
+                  "address": a.get("address", ""), "pincode": a.get("pincode", "")},
+        "items": [{"name": i["name"], "qty": i["qty"], "mrp": rupees(i["mrp"]), "amount": rupees(i["mrp"] * i["qty"])}
+                  for i in items],
+        "items_total": rupees(o["items_total"]), "courier_charge": rupees(o["courier_charge"]),
+        "total": rupees(o["items_total"] + o["courier_charge"]),
+        "paid": {"product": rupees(o["paid_product"]), "fund": rupees(o["paid_fund"]), "income": rupees(o["paid_income"])},
+        "courier_utr": o["courier_utr"], "courier_status": o["courier_status"],
+        "cancelled_at": o["cancelled_at"], "cancel_reason": o["cancel_reason"],
+        "courier_refund_due": o["courier_refund_due"], "courier_refunded_at": o["courier_refunded_at"],
+    }
+
+
 async def _order_rows(where: str, *args, conn=None):
     return await cpo.fetch_all(f"SELECT * FROM order_items WHERE {where} ORDER BY product_id", *args, conn=conn)
 
 
 def _order_out(o: Dict, items: List[Dict], admin: bool = False) -> Dict:
     out = {
-        "id": o["id"], "order_no": o["order_no"], "status": o["status"], "items_total": rupees(o["items_total"]),
+        "id": o["id"], "order_no": o["order_no"], "invoice_no": o["invoice_no"], "status": o["status"], "items_total": rupees(o["items_total"]),
         "paid": {"product": rupees(o["paid_product"]), "fund": rupees(o["paid_fund"]), "income": rupees(o["paid_income"])},
         "courier_charge": rupees(o["courier_charge"]), "courier_state": o["courier_state"], "courier_utr": o["courier_utr"],
         "courier_status": o["courier_status"], "courier_remark": o["courier_remark"],
@@ -250,6 +289,15 @@ async def my_order(orderId: int, user=Depends(tokenRequired())):
     if o["user_id"] != user["id"]:
         fail(404, "Order not found.")
     return respond({"msg": "", "status": 200, "data": _order_out(o, await _order_rows("order_id = $1", orderId))})
+
+
+@shopApi.get("/shop/orders/{orderId}/invoice", response_model=R.Envelope[R.Invoice])
+async def my_invoice(orderId: int, user=Depends(tokenRequired())):
+    """The member's own order invoice (to print or save as PDF)."""
+    o = await _load_order(orderId)
+    if o["user_id"] != user["id"]:
+        fail(404, "Order not found.")
+    return respond({"msg": "", "status": 200, "data": await _invoice(o)})
 
 
 async def cancel_order(conn, o: Dict, by: Optional[int], reason: str):
@@ -403,6 +451,11 @@ async def admin_orders(status: Optional[str] = Query(None, pattern="^(placed|pac
 async def admin_order(orderId: int, admin=Depends(tokenRequired(["ADMIN"]))):
     o = await _load_order(orderId)
     return respond({"msg": "", "status": 200, "data": _order_out(o, await _order_rows("order_id = $1", orderId), admin=True)})
+
+
+@shopApi.get("/admin/orders/{orderId}/invoice", response_model=R.Envelope[R.Invoice])
+async def admin_invoice(orderId: int, admin=Depends(tokenRequired(["ADMIN"]))):
+    return respond({"msg": "", "status": 200, "data": await _invoice(await _load_order(orderId))})
 
 
 @shopApi.post("/admin/orders/{orderId}/courier-review", response_model=R.Envelope[R.NoData])

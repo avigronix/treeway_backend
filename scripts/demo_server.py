@@ -157,8 +157,11 @@ async def seed_demo(members: int = 500, seed: int = 7) -> dict:
         prod = await cpo.fetch_one("SELECT name, mrp FROM products WHERE id = $1", p)
         mrp = prod["mrp"]
         async with cpo.transaction() as conn:
+            from routes.shopApis import next_invoice_no
+
             oid = await cpo.insertion("orders", {
                 "order_no": "TW-ORD-" + str(await cpo.fetch_val("SELECT nextval('order_no_seq')", conn=conn)),
+                "invoice_no": await next_invoice_no(conn),
                 "user_id": uid, "items_total": mrp, "paid_product": mrp, "courier_charge": 9000, "courier_state": "Uttar Pradesh",
                 "courier_utr": f"DEMOCOUR{n:04d}", "courier_receipt": "receipts/demo.png",
                 "courier_status": "approved" if n % 3 else "pending",
