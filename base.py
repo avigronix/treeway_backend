@@ -226,7 +226,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     # information only. True = count them as sales in the profit (Product Wallet spend never is).
     "shop_sales_in_profit": False,
     # Gullak savings: built, OFF until the CA / lawyer approve (Vinay, 15 Oct).
-    "gullak": {"enabled": False, "opening_charge": 10000, "deposit_charge_percent": 3, "interest_percent": 10,
+    "gullak": {"enabled": False, "opening_charge": 10000, "deposit_charge_percent": 3, "interest_percent": 12,
                "min_months": 6, "min_deposit": 10000,
                "interest_tds_percent": 2},   # TDS on Gullak interest (CA to confirm the rate)
 
