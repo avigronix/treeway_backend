@@ -939,6 +939,9 @@ class CompanyDetail(Out):
     whatsapp_group: str
     address: str
     gstin: str
+    youtube: str
+    facebook: str
+    instagram: str
 
 
 class PublicP2P(Out):

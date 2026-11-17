@@ -236,6 +236,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "name": "Treeway", "upi_id": "", "account_holder": "", "account_no": "", "ifsc": "",
         "branch": "", "qr_path": "", "email": "", "phone": "", "whatsapp_group": "",
         "address": "", "gstin": "",   # printed on every invoice (Vinay 6 Nov); GSTIN optional (not registered yet)
+        "youtube": "", "facebook": "", "instagram": "",   # social pages, logos in the app + website (Vinay 17 Nov)
     },
 }
 

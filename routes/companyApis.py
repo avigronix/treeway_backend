@@ -16,7 +16,7 @@ LOCKED_AFTER_LAUNCH = {"activation_amount", "product_wallet_on_activation"}
 # Inside "super3" only these may change once a member is on a board; the board structure is locked.
 SUPER3_FREE_FIELDS = {"direct_bonus", "self_help"}
 PUBLIC_COMPANY_KEYS = ("name", "upi_id", "account_holder", "account_no", "ifsc", "branch", "qr_path",
-                       "email", "phone", "whatsapp_group", "address", "gstin")
+                       "email", "phone", "whatsapp_group", "address", "gstin", "youtube", "facebook", "instagram")
 
 
 @cmpApi.get("/company/detail", response_model=R.Envelope[R.CompanyDetail])
@@ -53,6 +53,13 @@ ACCOUNT_RE = re.compile(r"^\d{9,18}$")
 EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]+\.[A-Za-z]{2,}$")
 # Members tap this link, so only real WhatsApp https links (never javascript: or another site).
 WHATSAPP_RE = re.compile(r"^https://(chat\.whatsapp\.com|wa\.me|whatsapp\.com/channel)/[A-Za-z0-9/_\-?=&.]+$")
+# Social pages (Vinay 17 Nov): the same rule, only that site's own https link (www. / m. allowed).
+_PAGE = r"/[A-Za-z0-9/_\-?=&.@%]+$"
+SOCIAL_RE = {
+    "youtube": re.compile(r"^https://(www\.|m\.)?(youtube\.com|youtu\.be)" + _PAGE),
+    "facebook": re.compile(r"^https://(www\.|m\.)?(facebook\.com|fb\.com)" + _PAGE),
+    "instagram": re.compile(r"^https://(www\.)?instagram\.com" + _PAGE),
+}
 
 
 def _check_company(c: Dict[str, str]):
@@ -63,7 +70,10 @@ def _check_company(c: Dict[str, str]):
              ("email", EMAIL_RE, "Enter a valid email."),
              ("phone", re.compile(r"^[6-9]\d{9}$"), "Phone must be a 10-digit mobile number."),
              ("whatsapp_group", WHATSAPP_RE, "Use the WhatsApp group link (https://chat.whatsapp.com/...)."),
-             ("gstin", GSTIN_RE, "GSTIN has 15 letters and digits (like 09ABCDE1234F1Z5).")]
+             ("gstin", GSTIN_RE, "GSTIN has 15 letters and digits (like 09ABCDE1234F1Z5)."),
+             ("youtube", SOCIAL_RE["youtube"], "Use the YouTube channel link (https://youtube.com/@...)."),
+             ("facebook", SOCIAL_RE["facebook"], "Use the Facebook page link (https://facebook.com/...)."),
+             ("instagram", SOCIAL_RE["instagram"], "Use the Instagram page link (https://instagram.com/...).")]
     for key, rx, msg in rules:
         if c.get(key) and not rx.match(c[key]):
             fail(400, msg)
